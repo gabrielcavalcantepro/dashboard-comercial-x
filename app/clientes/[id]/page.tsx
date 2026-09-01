@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { buscarCliente } from "@/lib/db";
+import { buscarCliente, paraClientePublico } from "@/lib/db";
 import { DashboardClient } from "@/components/dashboard/DashboardClient";
 
 export default async function ClienteDashboardPage({
@@ -11,5 +11,5 @@ export default async function ClienteDashboardPage({
   const cliente = await buscarCliente(id);
   if (!cliente) notFound();
 
-  return <DashboardClient cliente={cliente} />;
+  return <DashboardClient cliente={paraClientePublico(cliente)} />;
 }

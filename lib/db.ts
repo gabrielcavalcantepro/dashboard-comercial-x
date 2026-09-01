@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Cliente, NovoClienteInput } from "./types";
+import type { Cliente, ClientePublico, NovoClienteInput } from "./types";
 
 declare global {
   var __supabaseClient: SupabaseClient | undefined;
@@ -29,6 +29,8 @@ interface ClienteRow {
   sheet_id: string;
   aba_nome: string;
   criado_em: string;
+  meta_ad_account_id: string | null;
+  meta_access_token: string | null;
 }
 
 function paraCliente(row: ClienteRow): Cliente {
@@ -39,7 +41,16 @@ function paraCliente(row: ClienteRow): Cliente {
     sheetId: row.sheet_id,
     abaNome: row.aba_nome,
     criadoEm: row.criado_em,
+    metaAdAccountId: row.meta_ad_account_id,
+    metaAccessToken: row.meta_access_token,
   };
+}
+
+// Use isto (nunca o Cliente cru) em qualquer lugar que a resposta vá para
+// o navegador — Server Component props ou JSON de rota de API.
+export function paraClientePublico(cliente: Cliente): ClientePublico {
+  const { metaAccessToken, ...resto } = cliente;
+  return { ...resto, temTokenConfigurado: Boolean(metaAccessToken) };
 }
 
 export async function listarClientes(): Promise<Cliente[]> {
@@ -71,6 +82,8 @@ export async function criarCliente(
       segmento: input.segmento.trim(),
       sheet_id: input.sheetId,
       aba_nome: input.abaNome.trim() || "Leads",
+      meta_ad_account_id: input.metaAdAccountId?.trim() || null,
+      meta_access_token: input.metaAccessToken?.trim() || null,
     })
     .select()
     .single();
@@ -80,15 +93,30 @@ export async function criarCliente(
 
 export async function atualizarCliente(
   id: string,
-  dados: { nome: string; segmento: string; sheetId: string },
+  dados: {
+    nome: string;
+    segmento: string;
+    sheetId: string;
+    metaAdAccountId?: string;
+    metaAccessToken?: string;
+  },
 ): Promise<Cliente | null> {
+  const update: Record<string, unknown> = {
+    nome: dados.nome.trim(),
+    segmento: dados.segmento.trim(),
+    sheet_id: dados.sheetId,
+    meta_ad_account_id: dados.metaAdAccountId?.trim() || null,
+  };
+  // O token nunca volta pro navegador (ver ClientePublico), então o campo
+  // no formulário de edição fica sempre vazio — "vazio" aqui significa
+  // "sem alteração", não "remover o token já salvo".
+  if (dados.metaAccessToken?.trim()) {
+    update.meta_access_token = dados.metaAccessToken.trim();
+  }
+
   const { data, error } = await getClient()
     .from("clientes")
-    .update({
-      nome: dados.nome.trim(),
-      segmento: dados.segmento.trim(),
-      sheet_id: dados.sheetId,
-    })
+    .update(update)
     .eq("id", id)
     .select()
     .maybeSingle();

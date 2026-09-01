@@ -3,12 +3,12 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import type { Cliente } from "@/lib/types";
+import type { ClientePublico } from "@/lib/types";
 import { ClientFormModal } from "@/components/client-selection/ClientFormModal";
 import { LiveIndicator } from "./LiveIndicator";
 
 interface DashboardHeaderProps {
-  cliente: Cliente;
+  cliente: ClientePublico;
   atualizadoEm: number | null;
   pausado: boolean;
   alternarPausado: () => void;

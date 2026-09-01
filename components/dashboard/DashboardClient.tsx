@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Cliente } from "@/lib/types";
+import type { ClientePublico } from "@/lib/types";
 import {
   FILTROS_VAZIOS,
   computeDesistenciaPosQualificacao,
@@ -23,7 +23,7 @@ import {
   type Filtros,
   type Periodo,
 } from "@/lib/metrics";
-import { formatCurrency, formatDateBR, formatNumber, toISODate } from "@/lib/format";
+import { addDaysISO, formatCurrency, formatDateBR, formatNumber, toISODate } from "@/lib/format";
 import { useLiveLeads } from "@/hooks/useLiveLeads";
 import { useToast } from "@/components/ui/Toast";
 import { DashboardHeader } from "./DashboardHeader";
@@ -42,9 +42,10 @@ import { PostQualDropoutCallout } from "./charts/PostQualDropoutCallout";
 import { ReportModal } from "./report/ReportModal";
 import { ReportDocument } from "./report/ReportDocument";
 import { gerarRelatorioPdf } from "./report/generateReportPdf";
+import { TrafegoPagoSection } from "./ads/TrafegoPagoSection";
 
 interface DashboardClientProps {
-  cliente: Cliente;
+  cliente: ClientePublico;
 }
 
 export function DashboardClient({ cliente }: DashboardClientProps) {
@@ -75,6 +76,15 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
   }, [leads, filtros]);
 
   const funil = useMemo(() => computeFunil(leadsFiltrados), [leadsFiltrados]);
+
+  // A API do Meta Ads exige um período fechado (não existe "todo o
+  // período"), então quando o filtro global está em "Todo o período" a
+  // seção de tráfego pago usa os últimos 30 dias como padrão.
+  const periodoAds: Periodo = useMemo(() => {
+    if (filtros.periodo) return filtros.periodo;
+    const hoje = toISODate(new Date());
+    return { inicio: addDaysISO(hoje, -29), fim: hoje };
+  }, [filtros.periodo]);
 
   const granularidade = useMemo(() => {
     if (filtros.periodo) return definirGranularidade(filtros.periodo.inicio, filtros.periodo.fim);
@@ -430,6 +440,8 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
           </ChartPanel>
         </div>
       </section>
+
+      <TrafegoPagoSection cliente={cliente} periodo={periodoAds} />
 
       <ReportModal
         open={relatorioAberto}

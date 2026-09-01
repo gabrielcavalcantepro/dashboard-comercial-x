@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import type { Cliente, Lead } from "@/lib/types";
+import type { ClientePublico, Lead } from "@/lib/types";
 import { addDaysISO, toISODate } from "@/lib/format";
 import { ClientFormModal } from "./ClientFormModal";
 
 interface ClientRowProps {
-  cliente: Cliente;
+  cliente: ClientePublico;
   index: number;
 }
 

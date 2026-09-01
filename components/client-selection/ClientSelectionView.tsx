@@ -3,13 +3,13 @@
 import { useState } from "react";
 import Image from "next/image";
 import { motion } from "framer-motion";
-import type { Cliente } from "@/lib/types";
+import type { ClientePublico } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 import { ClientRow } from "./ClientRow";
 import { ClientFormModal } from "./ClientFormModal";
 
 interface ClientSelectionViewProps {
-  clientes: Cliente[];
+  clientes: ClientePublico[];
 }
 
 export function ClientSelectionView({ clientes }: ClientSelectionViewProps) {

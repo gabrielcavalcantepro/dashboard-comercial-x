@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { atualizarCliente, buscarCliente, removerCliente } from "@/lib/db";
+import { atualizarCliente, buscarCliente, paraClientePublico, removerCliente } from "@/lib/db";
 import { buscarValoresPlanilha, extrairSheetId, validarCabecalho } from "@/lib/sheets";
 
 export async function GET(
@@ -11,7 +11,7 @@ export async function GET(
   if (!cliente) {
     return NextResponse.json({ erro: "Cliente não encontrado." }, { status: 404 });
   }
-  return NextResponse.json({ cliente });
+  return NextResponse.json({ cliente: paraClientePublico(cliente) });
 }
 
 export async function PATCH(
@@ -24,7 +24,13 @@ export async function PATCH(
     return NextResponse.json({ erro: "Cliente não encontrado." }, { status: 404 });
   }
 
-  let body: { nome?: string; segmento?: string; linkPlanilha?: string };
+  let body: {
+    nome?: string;
+    segmento?: string;
+    linkPlanilha?: string;
+    metaAdAccountId?: string;
+    metaAccessToken?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -37,6 +43,8 @@ export async function PATCH(
   const nome = (body.nome ?? "").trim();
   const segmento = (body.segmento ?? "").trim();
   const linkPlanilha = (body.linkPlanilha ?? "").trim();
+  const metaAdAccountId = (body.metaAdAccountId ?? "").trim();
+  const metaAccessToken = (body.metaAccessToken ?? "").trim();
 
   if (!nome) {
     return NextResponse.json({ erro: "Informe o nome do cliente." }, { status: 400 });
@@ -66,8 +74,14 @@ export async function PATCH(
     }
   }
 
-  const atualizado = await atualizarCliente(id, { nome, segmento, sheetId });
-  return NextResponse.json({ cliente: atualizado });
+  const atualizado = await atualizarCliente(id, {
+    nome,
+    segmento,
+    sheetId,
+    metaAdAccountId,
+    metaAccessToken,
+  });
+  return NextResponse.json({ cliente: atualizado ? paraClientePublico(atualizado) : null });
 }
 
 export async function DELETE(

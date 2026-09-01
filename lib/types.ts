@@ -52,11 +52,22 @@ export interface Cliente {
   sheetId: string;
   abaNome: string;
   criadoEm: string;
+  metaAdAccountId: string | null;
+  metaAccessToken: string | null;
 }
+
+// Versão do Cliente segura para trafegar até o navegador: o token do Meta
+// Ads nunca sai do servidor (nem em props de Server Component, nem em
+// resposta de API) — só a informação de que ele está configurado ou não.
+export type ClientePublico = Omit<Cliente, "metaAccessToken"> & {
+  temTokenConfigurado: boolean;
+};
 
 export interface NovoClienteInput {
   nome: string;
   segmento: string;
   linkPlanilha: string;
   abaNome: string;
+  metaAdAccountId?: string;
+  metaAccessToken?: string;
 }

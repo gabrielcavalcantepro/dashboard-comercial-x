@@ -6,14 +6,14 @@ import type {
   KpiValues,
   taxaDesistenciaPor,
 } from "@/lib/metrics";
-import type { Cliente } from "@/lib/types";
+import type { ClientePublico } from "@/lib/types";
 import { formatNumber, formatPercent } from "@/lib/format";
 
 export const LARGURA_PAGINA = 794;
 export const ALTURA_PAGINA = 1123;
 
 export interface ReportDocumentProps {
-  cliente: Cliente;
+  cliente: ClientePublico;
   vendedorLabel: string;
   periodoLabel: string;
   geradoEmLabel: string;
@@ -74,7 +74,7 @@ function ReportHeader({
   periodoLabel,
   geradoEmLabel,
 }: {
-  cliente: Cliente;
+  cliente: ClientePublico;
   vendedorLabel: string;
   periodoLabel: string;
   geradoEmLabel: string;

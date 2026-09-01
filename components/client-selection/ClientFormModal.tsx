@@ -6,15 +6,15 @@ import { Modal } from "@/components/ui/Modal";
 import { TextField } from "@/components/ui/TextField";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
-import type { Cliente } from "@/lib/types";
+import type { ClientePublico } from "@/lib/types";
 
 interface ClientFormModalProps {
   open: boolean;
   onClose: () => void;
-  cliente?: Cliente;
+  cliente?: ClientePublico;
 }
 
-function linkDaPlanilha(cliente: Cliente): string {
+function linkDaPlanilha(cliente: ClientePublico): string {
   return `https://docs.google.com/spreadsheets/d/${cliente.sheetId}/edit`;
 }
 
@@ -70,6 +70,26 @@ function IconAba() {
   );
 }
 
+function IconConta() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <rect x="1.5" y="3" width="11" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M1.5 5.8H12.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M3.5 8.2H6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconChave() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <circle cx="4.5" cy="9.5" r="3" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M6.6 7.4L12.5 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M9.5 4.5L11.3 6.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps) {
   const router = useRouter();
   const { push } = useToast();
@@ -79,6 +99,10 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
   const [segmento, setSegmento] = useState(cliente?.segmento ?? "");
   const [linkPlanilha, setLinkPlanilha] = useState(cliente ? linkDaPlanilha(cliente) : "");
   const [abaNome, setAbaNome] = useState("Leads");
+  const [metaAdAccountId, setMetaAdAccountId] = useState(cliente?.metaAdAccountId ?? "");
+  // O token nunca chega ao navegador (ver ClientePublico) — o campo começa
+  // sempre vazio; deixar vazio ao salvar mantém o token já configurado.
+  const [metaAccessToken, setMetaAccessToken] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -93,6 +117,8 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
       setSegmento(cliente?.segmento ?? "");
       setLinkPlanilha(cliente ? linkDaPlanilha(cliente) : "");
       setAbaNome("Leads");
+      setMetaAdAccountId(cliente?.metaAdAccountId ?? "");
+      setMetaAccessToken("");
       setErro(null);
     }
   }
@@ -111,7 +137,9 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
         method: editando ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          editando ? { nome, segmento, linkPlanilha } : { nome, segmento, linkPlanilha, abaNome },
+          editando
+            ? { nome, segmento, linkPlanilha, metaAdAccountId, metaAccessToken }
+            : { nome, segmento, linkPlanilha, abaNome, metaAdAccountId, metaAccessToken },
         ),
       });
       const data = await res.json();
@@ -191,6 +219,36 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
             disabled={enviando}
           />
         )}
+
+        <div className="flex items-center gap-2.5 pt-1">
+          <span className="h-[6px] w-[6px] shrink-0 rounded-full bg-[var(--color-accent)]" />
+          <span className="text-[13px] font-medium text-[var(--color-text)]">Meta Ads (opcional)</span>
+        </div>
+        <TextField
+          label="ID da conta de anúncio"
+          name="metaAdAccountId"
+          icon={<IconConta />}
+          placeholder="Ex.: 1170225954349270"
+          value={metaAdAccountId}
+          onChange={(e) => setMetaAdAccountId(e.target.value)}
+          hint='Com ou sem o prefixo "act_" — funciona dos dois jeitos.'
+          disabled={enviando}
+        />
+        <TextField
+          label="Token de acesso"
+          name="metaAccessToken"
+          type="password"
+          icon={<IconChave />}
+          placeholder={
+            cliente?.temTokenConfigurado
+              ? "•••••••• (já configurado — deixe em branco para manter)"
+              : "Token de acesso do Meta Ads"
+          }
+          value={metaAccessToken}
+          onChange={(e) => setMetaAccessToken(e.target.value)}
+          hint="Fica salvo só no servidor — nunca é enviado ao navegador de quem visualiza o painel."
+          disabled={enviando}
+        />
 
         {erro && (
           <div className="rounded-[var(--radius-sm)] border border-[rgba(255,111,112,0.35)] bg-[rgba(255,111,112,0.08)] px-3.5 py-3 text-[13px] leading-relaxed text-[var(--color-negative)]">

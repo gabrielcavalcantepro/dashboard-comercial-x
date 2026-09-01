@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { criarCliente, listarClientes } from "@/lib/db";
+import { criarCliente, listarClientes, paraClientePublico } from "@/lib/db";
 import { buscarValoresPlanilha, extrairSheetId, validarCabecalho } from "@/lib/sheets";
 import type { NovoClienteInput } from "@/lib/types";
 
 export async function GET() {
   const clientes = await listarClientes();
-  return NextResponse.json({ clientes });
+  return NextResponse.json({ clientes: clientes.map(paraClientePublico) });
 }
 
 export async function POST(req: Request) {
@@ -23,6 +23,8 @@ export async function POST(req: Request) {
   const segmento = (body.segmento ?? "").trim();
   const linkPlanilha = (body.linkPlanilha ?? "").trim();
   const abaNome = (body.abaNome ?? "Leads").trim() || "Leads";
+  const metaAdAccountId = (body.metaAdAccountId ?? "").trim();
+  const metaAccessToken = (body.metaAccessToken ?? "").trim();
 
   if (!nome) {
     return NextResponse.json({ erro: "Informe o nome do cliente." }, { status: 400 });
@@ -49,6 +51,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ erro: validacao.mensagem }, { status: 422 });
   }
 
-  const cliente = await criarCliente({ nome, segmento, linkPlanilha, abaNome, sheetId });
-  return NextResponse.json({ cliente }, { status: 201 });
+  const cliente = await criarCliente({
+    nome,
+    segmento,
+    linkPlanilha,
+    abaNome,
+    sheetId,
+    metaAdAccountId,
+    metaAccessToken,
+  });
+  return NextResponse.json({ cliente: paraClientePublico(cliente) }, { status: 201 });
 }
