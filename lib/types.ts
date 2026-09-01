@@ -1,4 +1,5 @@
 export type StatusLead = "Agendado" | "Avaliando" | "Desistiu";
+export type RespostaSimNao = "Sim" | "Não" | "Indefinido";
 
 export interface Lead {
   linha: number;
@@ -12,6 +13,8 @@ export interface Lead {
   ticketMedio: number | null;
   status: StatusLead | null;
   statusRaw: string;
+  compareceu: RespostaSimNao | null; // null = coluna ausente ou célula vazia
+  converteu: RespostaSimNao | null;
   dataAgendamento: string | null;
   observacoes: string;
 }
@@ -27,6 +30,8 @@ export type CampoOpcional =
   | "nomeOuTelefone"
   | "fonte"
   | "procedimento"
+  | "compareceu"
+  | "converteu"
   | "dataAgendamento"
   | "observacoes";
 

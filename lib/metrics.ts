@@ -169,7 +169,7 @@ export function computeFunil(leads: Lead[]): EtapaFunil[] {
 
   const pct = (v: number) => (total ? (v / total) * 100 : 0);
 
-  return [
+  const etapas: EtapaFunil[] = [
     { rotulo: "Total", valor: total, percentualDoTotal: 100, percentualDaEtapaAnterior: null },
     {
       rotulo: "Qualificados",
@@ -186,6 +186,33 @@ export function computeFunil(leads: Lead[]): EtapaFunil[] {
         : null,
     },
   ];
+
+  // "Comparecidos" e "Convertidos" só entram no funil se a planilha tiver as
+  // colunas "Compareceu?" e "Converteu?" — clientes sem essas colunas
+  // continuam com o funil de 3 etapas, sem mostrar um "0%" enganoso.
+  const temComparecimento = leads.some((l) => l.compareceu !== null);
+  if (temComparecimento) {
+    const comparecidos = leads.filter((l) => l.compareceu === "Sim").length;
+    etapas.push({
+      rotulo: "Comparecidos",
+      valor: comparecidos,
+      percentualDoTotal: pct(comparecidos),
+      percentualDaEtapaAnterior: agendados ? (comparecidos / agendados) * 100 : null,
+    });
+
+    const temConversao = leads.some((l) => l.converteu !== null);
+    if (temConversao) {
+      const convertidos = leads.filter((l) => l.converteu === "Sim").length;
+      etapas.push({
+        rotulo: "Convertidos",
+        valor: convertidos,
+        percentualDoTotal: pct(convertidos),
+        percentualDaEtapaAnterior: comparecidos ? (convertidos / comparecidos) * 100 : null,
+      });
+    }
+  }
+
+  return etapas;
 }
 
 // ---------- Distribuições genéricas ----------

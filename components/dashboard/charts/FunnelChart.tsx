@@ -8,7 +8,13 @@ interface FunnelChartProps {
   etapas: EtapaFunil[];
 }
 
-const CORES = ["var(--color-text-faint)", "var(--color-avaliando)", "var(--color-agendado)"];
+const CORES = [
+  "var(--color-text-faint)",
+  "var(--color-avaliando)",
+  "var(--color-agendado)",
+  "var(--color-comparecido)",
+  "var(--color-convertido)",
+];
 
 export function FunnelChart({ etapas }: FunnelChartProps) {
   if (!etapas.length || etapas[0].valor === 0) {

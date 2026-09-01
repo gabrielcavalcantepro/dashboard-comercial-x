@@ -3,6 +3,7 @@ import type {
   CampoEssencial,
   CampoOpcional,
   Lead,
+  RespostaSimNao,
   StatusLead,
   ValidacaoAba,
 } from "./types";
@@ -19,6 +20,8 @@ const OPCIONAIS: CampoOpcional[] = [
   "nomeOuTelefone",
   "fonte",
   "procedimento",
+  "compareceu",
+  "converteu",
   "dataAgendamento",
   "observacoes",
 ];
@@ -32,6 +35,8 @@ const ROTULOS: Record<CampoCanonico, string> = {
   procedimento: "Procedimento",
   ticketMedio: "Ticket Médio (R$)",
   status: "Status",
+  compareceu: "Compareceu?",
+  converteu: "Converteu?",
   dataAgendamento: "Data Agendamento",
   observacoes: "Observações",
 };
@@ -72,6 +77,8 @@ const ALIASES: Record<CampoCanonico, string[]> = {
     "valor",
   ],
   status: ["status"],
+  compareceu: ["compareceu", "presenca", "presenca no agendamento"],
+  converteu: ["converteu", "conversao", "fechou venda"],
   dataAgendamento: [
     "data do agendamento",
     "data de agendamento",
@@ -90,6 +97,8 @@ const CAMPOS_EM_ORDEM: CampoCanonico[] = [
   "procedimento",
   "ticketMedio",
   "status",
+  "compareceu",
+  "converteu",
   "observacoes",
 ];
 
@@ -189,6 +198,16 @@ function normalizarTexto(texto: string): string {
 
 function parseBooleanoSimNao(valor: string): boolean {
   return normalizarTexto(valor) === "sim";
+}
+
+const RESPOSTAS_VALIDAS: Record<string, RespostaSimNao> = {
+  sim: "Sim",
+  nao: "Não",
+  indefinido: "Indefinido",
+};
+
+function parseRespostaSimNao(valor: string): RespostaSimNao | null {
+  return RESPOSTAS_VALIDAS[normalizarTexto(valor)] ?? null;
 }
 
 // Uniformiza capitalização (ex.: "samyra" e "Samyra" digitados de forma
@@ -294,6 +313,8 @@ export function parseLinhas(
       ticketMedio: parseTicket(get(linha, "ticketMedio")),
       status,
       statusRaw,
+      compareceu: parseRespostaSimNao(get(linha, "compareceu")),
+      converteu: parseRespostaSimNao(get(linha, "converteu")),
       dataAgendamento: parseDataBR(get(linha, "dataAgendamento")),
       observacoes: get(linha, "observacoes"),
     });

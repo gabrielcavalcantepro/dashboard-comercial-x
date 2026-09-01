@@ -38,6 +38,7 @@ function ReportPage({
       style={{
         width: LARGURA_PAGINA,
         height: ALTURA_PAGINA,
+        overflow: "hidden",
         background: "#151515",
         color: "#f5f4ec",
         padding: "56px 56px 40px",
@@ -158,7 +159,7 @@ function KpiTile({ label, value, hero }: { label: string; value: string; hero?: 
 }
 
 function StaticFunnel({ etapas }: { etapas: EtapaFunil[] }) {
-  const cores = ["rgba(245,244,236,0.38)", "#6fb3ff", "#fad214"];
+  const cores = ["rgba(245,244,236,0.38)", "#6fb3ff", "#fad214", "#7be3a8", "#34d399"];
   return (
     <Card>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
