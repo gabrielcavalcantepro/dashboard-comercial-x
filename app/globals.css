@@ -1,0 +1,173 @@
+@import "tailwindcss";
+
+@theme {
+  --color-base: #151515;
+  --color-surface: #1b1b1a;
+  --color-surface-raised: #222220;
+  --color-surface-sunken: #101010;
+  --color-border: rgba(245, 244, 236, 0.08);
+  --color-border-strong: rgba(245, 244, 236, 0.16);
+  --color-text: #f5f4ec;
+  --color-text-muted: rgba(245, 244, 236, 0.62);
+  --color-text-faint: rgba(245, 244, 236, 0.38);
+
+  --color-accent: #fad214;
+  --color-accent-ink: #171502;
+  --color-accent-soft: rgba(250, 210, 20, 0.12);
+  --color-accent-border: rgba(250, 210, 20, 0.35);
+
+  --color-agendado: #fad214;
+  --color-avaliando: #6fb3ff;
+  --color-desistiu: #ff6f70;
+
+  --color-positive: #7be3a8;
+  --color-negative: #ff6f70;
+
+  --font-heading: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-body: var(--font-poppins), ui-sans-serif, sans-serif;
+
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Tudo aqui dentro de @layer base — sem isso, essas regras "soltas"
+   ganhariam de QUALQUER utilitário do Tailwind (bg-[...], text-[...] etc.),
+   já que CSS cascade layers ignora especificidade entre uma regra sem
+   layer e uma regra dentro de @layer utilities: a sem-layer sempre vence.
+   Foi exatamente isso que quebrava silenciosamente o botão "primary"
+   (o fundo amarelo nunca era aplicado, só a sombra). */
+@layer base {
+  * {
+    box-sizing: border-box;
+    border-color: var(--color-border);
+  }
+
+  html {
+    height: 100%;
+    color-scheme: dark;
+  }
+
+  body {
+    position: relative;
+    min-height: 100%;
+    background: var(--color-base);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Glow decorativo do topo em uma camada própria (position: fixed), em vez
+     de background-attachment: fixed no body — isso evita que o navegador
+     repinte o gradiente a cada frame de scroll (causa clássica de travamento). */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      radial-gradient(ellipse 900px 480px at 12% -10%, rgba(250, 210, 20, 0.07), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 100% 0%, rgba(111, 179, 255, 0.05), transparent 55%);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  ul, ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  button, input, select, textarea {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  input, textarea {
+    outline: none;
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* scrollbar */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(245, 244, 236, 0.18) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: rgba(245, 244, 236, 0.14);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(245, 244, 236, 0.24);
+    background-clip: padding-box;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
