@@ -12,6 +12,7 @@ import {
   computePerformancePorVendedor,
   contarPor,
   definirGranularidade,
+  excluirResgate,
   faixaDeDatasDisponivel,
   filtrarLeads,
   leadsPorDiaDaSemana,
@@ -82,7 +83,21 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
     return definirGranularidade(faixa?.inicio ?? hoje, faixa?.fim ?? hoje);
   }, [filtros.periodo, leadsFiltrados]);
 
-  const evolucao = useMemo(() => computeEvolucao(leadsFiltrados, granularidade), [leadsFiltrados, granularidade]);
+  // "Resgate" é lead que a equipe já tinha, não uma chegada nova — métricas
+  // sobre volume/padrão de chegada de leads não devem contar como se fosse
+  // lead novo. Métricas de conversão do funil continuam usando todos os
+  // leads (leadsFiltrados), já que um lead de Resgate passa pelo funil
+  // normalmente e pode qualificar, agendar ou desistir como qualquer outro.
+  const leadsChegada = useMemo(() => excluirResgate(leadsFiltrados), [leadsFiltrados]);
+
+  const evolucaoChegada = useMemo(
+    () => computeEvolucao(leadsChegada, granularidade),
+    [leadsChegada, granularidade],
+  );
+  const evolucaoConversao = useMemo(
+    () => computeEvolucao(leadsFiltrados, granularidade),
+    [leadsFiltrados, granularidade],
+  );
 
   // Leads sem fonte/procedimento/vendedor preenchido ficam fora dessas
   // comparações — incluí-los criaria uma pseudo-categoria "vazia" que
@@ -103,7 +118,7 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
     () => ticketMedioPor(comProcedimento, (l) => l.procedimento),
     [comProcedimento],
   );
-  const porDiaDaSemana = useMemo(() => leadsPorDiaDaSemana(leadsFiltrados), [leadsFiltrados]);
+  const porDiaDaSemana = useMemo(() => leadsPorDiaDaSemana(leadsChegada), [leadsChegada]);
   const performanceVendedor = useMemo(
     () => computePerformancePorVendedor(comVendedor),
     [comVendedor],
@@ -283,19 +298,19 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
           </ChartPanel>
           <ChartPanel
             title="Evolução de leads"
-            tooltip="Quantidade de leads recebidos ao longo do tempo, agrupados por dia, semana ou mês conforme o período selecionado."
+            tooltip="Quantidade de leads novos chegando ao longo do tempo, agrupados por dia, semana ou mês conforme o período selecionado. Não inclui leads de Resgate — são leads que a equipe já tinha, não chegadas novas."
             className="lg:col-span-8"
             delay={0.05}
           >
-            <LeadsEvolutionChart dados={evolucao} />
+            <LeadsEvolutionChart dados={evolucaoChegada} />
           </ChartPanel>
           <ChartPanel
             title="Tendência de qualificação e agendamento"
-            tooltip="Como as taxas de qualificação e de agendamento variaram ao longo do tempo, para enxergar tendência e não só o número atual."
+            tooltip="Como as taxas de qualificação e de agendamento variaram ao longo do tempo, para enxergar tendência e não só o número atual. Considera todos os leads, incluindo Resgate."
             className="lg:col-span-12"
             delay={0.1}
           >
-            <ConversionTrendChart dados={evolucao} />
+            <ConversionTrendChart dados={evolucaoConversao} />
           </ChartPanel>
         </div>
       </section>
@@ -340,7 +355,7 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
           </ChartPanel>
           <ChartPanel
             title="Leads por dia da semana"
-            tooltip="Em quais dias da semana os leads mais entram em contato — útil para identificar padrões de volume."
+            tooltip="Em quais dias da semana chegam mais leads novos — útil para identificar padrões de volume. Não inclui leads de Resgate — são leads que a equipe já tinha, não chegadas novas."
             delay={0.15}
           >
             <VerticalBars

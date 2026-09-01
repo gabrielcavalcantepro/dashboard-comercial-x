@@ -109,7 +109,6 @@ export function MultiSelect({ label, options, selected, onChange, className }: M
             {options.map((opt) => (
               <div
                 key={opt.value}
-                onClick={() => toggle(opt.value)}
                 className="rounded-[var(--radius-sm)] px-2.5 py-2 hover:bg-white/5"
               >
                 <Checkbox

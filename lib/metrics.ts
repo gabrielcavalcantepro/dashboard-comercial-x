@@ -30,6 +30,17 @@ export const FILTROS_VAZIOS: Filtros = {
   statuses: [],
 };
 
+// "Resgate" é lead que a equipe já tinha e voltou a trabalhar — não é uma
+// chegada nova. Métricas sobre volume/padrão de chegada de leads (evolução
+// no tempo, dia da semana) excluem essa fonte; métricas de conversão do
+// funil (qualificação, fechamento, desistência) continuam considerando
+// todos os leads, já que um lead de Resgate passa pelo funil normalmente.
+const FONTE_RESGATE = "Resgate";
+
+export function excluirResgate(leads: Lead[]): Lead[] {
+  return leads.filter((l) => l.fonte !== FONTE_RESGATE);
+}
+
 export function filtrarLeads(leads: Lead[], filtros: Filtros): Lead[] {
   return leads.filter((lead) => {
     if (filtros.periodo) {
