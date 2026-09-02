@@ -43,6 +43,8 @@ import { ReportModal } from "./report/ReportModal";
 import { ReportDocument } from "./report/ReportDocument";
 import { gerarRelatorioPdf } from "./report/generateReportPdf";
 import { TrafegoPagoSection } from "./ads/TrafegoPagoSection";
+import { PresentationButton } from "./presentation/PresentationButton";
+import { PresentationView } from "./presentation/PresentationView";
 
 interface DashboardClientProps {
   cliente: ClientePublico;
@@ -146,6 +148,40 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
     [leadsFiltrados],
   );
   const motivos = useMemo(() => computeMotivosDesistencia(leadsFiltrados), [leadsFiltrados]);
+
+  const [apresentacaoAtiva, setApresentacaoAtiva] = useState(false);
+
+  const entrarApresentacao = async () => {
+    setApresentacaoAtiva(true);
+    try {
+      await document.documentElement.requestFullscreen();
+    } catch {
+      // Tela cheia real pode ser negada (ex.: sem gesto do usuário em
+      // alguns navegadores) — o layout do modo apresentação já ocupa toda
+      // a viewport via CSS de qualquer forma, então seguimos sem ela.
+    }
+  };
+
+  const sairApresentacao = async () => {
+    setApresentacaoAtiva(false);
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen();
+      } catch {
+        // já não está mais em tela cheia — nada a fazer
+      }
+    }
+  };
+
+  // Sincroniza o estado quando o usuário sai da tela cheia por fora do
+  // nosso botão (Esc nativo, F11, gesto do sistema operacional).
+  useEffect(() => {
+    const aoMudarFullscreen = () => {
+      if (!document.fullscreenElement) setApresentacaoAtiva(false);
+    };
+    document.addEventListener("fullscreenchange", aoMudarFullscreen);
+    return () => document.removeEventListener("fullscreenchange", aoMudarFullscreen);
+  }, []);
 
   const { push } = useToast();
   const [relatorioAberto, setRelatorioAberto] = useState(false);
@@ -260,6 +296,21 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
           <Button variant="secondary" onClick={atualizarAgora}>Tentar novamente</Button>
         </div>
       </div>
+    );
+  }
+
+  if (apresentacaoAtiva) {
+    return (
+      <PresentationView
+        cliente={cliente}
+        kpis={kpis}
+        funil={funil}
+        evolucao={evolucaoChegada}
+        porFonte={porFonte}
+        porProcedimento={porProcedimento}
+        atualizadoEm={atualizadoEm}
+        onSair={sairApresentacao}
+      />
     );
   }
 
@@ -471,6 +522,8 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
           />
         </div>
       )}
+
+      <PresentationButton onClick={entrarApresentacao} />
     </div>
   );
 }
