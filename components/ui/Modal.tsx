@@ -16,10 +16,22 @@ interface ModalProps {
 export function Modal({ open, onClose, title, description, children, width = 520 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // Guarda a versão mais recente de onClose sem entrar nas dependências do
+  // efeito abaixo — chamadoras costumam passar uma closure inline (ex.:
+  // `onClose={() => setAberto(false)}`), que muda de identidade a cada
+  // render. Se onClose estivesse nas deps, qualquer re-render do formulário
+  // dentro do modal (como digitar em um campo controlado) refaria o efeito
+  // e chamaria panelRef.current?.focus() de novo, roubando o foco do campo
+  // a cada tecla.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     };
     document.addEventListener("keydown", onKey);
     const prevOverflow = document.body.style.overflow;
@@ -29,7 +41,7 @@ export function Modal({ open, onClose, title, description, children, width = 520
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (typeof document === "undefined") return null;
 
