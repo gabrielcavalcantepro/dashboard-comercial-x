@@ -58,7 +58,7 @@ export function ClientRow({ cliente, index }: ClientRowProps) {
         />
         <div className="relative z-10 flex min-w-0 flex-col justify-center">
           <div className="flex items-center gap-3">
-            <h3 className="truncate text-[22px] font-semibold leading-none text-[var(--color-text)] sm:text-[26px]">
+            <h3 className="truncate py-0.5 text-[22px] font-semibold leading-tight text-[var(--color-text)] sm:text-[26px]">
               {cliente.nome}
             </h3>
             <span className="hidden shrink-0 rounded-full border border-[var(--color-border-strong)] px-2.5 py-0.5 text-[11px] leading-none text-[var(--color-text-muted)] sm:inline-block">
