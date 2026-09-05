@@ -46,7 +46,7 @@ export function ClientRow({ cliente, index }: ClientRowProps) {
     >
       <Link
         href={`/clientes/${cliente.id}`}
-        className="group relative flex items-center justify-between gap-6 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] px-5 py-6 transition-colors duration-300 hover:border-[var(--color-border-strong)]"
+        className="group relative flex items-center justify-between gap-6 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] px-5 py-6 transition-colors duration-300 hover:border-[var(--color-accent-border)]"
       >
         <span
           aria-hidden
