@@ -213,7 +213,7 @@ function parseRespostaSimNao(valor: string): RespostaSimNao | null {
 // Uniformiza capitalização (ex.: "samyra" e "Samyra" digitados de forma
 // diferente pela equipe) para não fragmentar os agrupamentos por vendedor,
 // fonte e procedimento.
-function normalizarRotulo(valor: string): string {
+export function normalizarRotulo(valor: string): string {
   const limpo = valor.trim().replace(/\s+/g, " ");
   if (!limpo) return "";
   return limpo

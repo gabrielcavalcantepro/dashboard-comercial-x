@@ -352,7 +352,7 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
         <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-12">
           <ChartPanel
             title="Funil de conversão"
-            tooltip="Mostra quantos leads avançam de Total para Qualificados, Agendados, Comparecidos e Convertidos, revelando em qual etapa o funil mais perde gente. As duas últimas etapas só aparecem se a planilha tiver as colunas 'Compareceu?' e 'Converteu?'."
+            tooltip="Mostra quantos leads avançam de Total para Qualificados, Agendados, Comparecidos e Convertidos, revelando em qual etapa o funil mais perde gente. As duas últimas etapas só aparecem se o funil do PipeFácil tiver essas etapas ou se a planilha tiver as colunas 'Compareceu?' e 'Converteu?'."
             className="lg:col-span-4"
           >
             <FunnelChart etapas={funil} />

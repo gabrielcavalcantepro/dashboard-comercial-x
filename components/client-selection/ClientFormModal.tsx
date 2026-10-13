@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
+import { Select, type SelectOption } from "@/components/ui/Select";
 import { TextField } from "@/components/ui/TextField";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
@@ -15,6 +16,7 @@ interface ClientFormModalProps {
 }
 
 function linkDaPlanilha(cliente: ClientePublico): string {
+  if (!cliente.sheetId) return "";
   return `https://docs.google.com/spreadsheets/d/${cliente.sheetId}/edit`;
 }
 
@@ -99,6 +101,9 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
   const [segmento, setSegmento] = useState(cliente?.segmento ?? "");
   const [linkPlanilha, setLinkPlanilha] = useState(cliente ? linkDaPlanilha(cliente) : "");
   const [abaNome, setAbaNome] = useState("Leads");
+  const [funilSeq, setFunilSeq] = useState(String(cliente?.pipefacilPipelineSeq ?? ""));
+  const [funis, setFunis] = useState<SelectOption[]>([]);
+  const [erroFunis, setErroFunis] = useState<string | null>(null);
   const [metaAdAccountId, setMetaAdAccountId] = useState(cliente?.metaAdAccountId ?? "");
   // O token nunca chega ao navegador (ver ClientePublico) — o campo começa
   // sempre vazio; deixar vazio ao salvar mantém o token já configurado.
@@ -117,11 +122,37 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
       setSegmento(cliente?.segmento ?? "");
       setLinkPlanilha(cliente ? linkDaPlanilha(cliente) : "");
       setAbaNome("Leads");
+      setFunilSeq(String(cliente?.pipefacilPipelineSeq ?? ""));
       setMetaAdAccountId(cliente?.metaAdAccountId ?? "");
       setMetaAccessToken("");
       setErro(null);
     }
   }
+
+  useEffect(() => {
+    if (!open) return;
+    let ativo = true;
+    fetch("/api/pipefacil/funis")
+      .then(async (r) => ({ ok: r.ok, data: await r.json() }))
+      .then(({ ok, data }) => {
+        if (!ativo) return;
+        if (!ok) {
+          setErroFunis(data.erro ?? "Não foi possível listar os funis do PipeFácil.");
+          return;
+        }
+        setErroFunis(null);
+        setFunis(
+          (data.funis as { seq: number; nome: string }[]).map((f) => ({
+            value: String(f.seq),
+            label: f.nome,
+          })),
+        );
+      })
+      .catch(() => ativo && setErroFunis("Não foi possível listar os funis do PipeFácil."));
+    return () => {
+      ativo = false;
+    };
+  }, [open]);
 
   const fechar = () => {
     if (enviando) return;
@@ -132,14 +163,15 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
     e.preventDefault();
     setErro(null);
     setEnviando(true);
+    const pipefacilPipelineSeq = funilSeq ? Number(funilSeq) : null;
     try {
       const res = await fetch(editando ? `/api/clientes/${cliente!.id}` : "/api/clientes", {
         method: editando ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           editando
-            ? { nome, segmento, linkPlanilha, metaAdAccountId, metaAccessToken }
-            : { nome, segmento, linkPlanilha, abaNome, metaAdAccountId, metaAccessToken },
+            ? { nome, segmento, linkPlanilha, pipefacilPipelineSeq, metaAdAccountId, metaAccessToken }
+            : { nome, segmento, linkPlanilha, abaNome, pipefacilPipelineSeq, metaAdAccountId, metaAccessToken },
         ),
       });
       const data = await res.json();
@@ -170,8 +202,8 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
       title={editando ? "Editar cliente" : "Adicionar cliente"}
       description={
         editando
-          ? "Atualize o nome, o segmento ou a planilha conectada deste cliente."
-          : "Conecte a planilha do Google Sheets onde a equipe comercial registra os leads."
+          ? "Atualize o nome, o segmento ou as fontes de leads deste cliente."
+          : "Conecte o funil do PipeFácil onde a equipe comercial trabalha os leads."
       }
       width={480}
     >
@@ -196,15 +228,31 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
           required
           disabled={enviando}
         />
+        <div className="flex flex-col gap-1.5">
+          <Select
+            label="Funil no PipeFácil"
+            options={[{ value: "", label: "Nenhum (só planilha)" }, ...funis]}
+            value={funilSeq}
+            onChange={setFunilSeq}
+          />
+          <span
+            className={
+              erroFunis
+                ? "text-[12px] text-[var(--color-negative)]"
+                : "text-[12px] text-[var(--color-text-faint)]"
+            }
+          >
+            {erroFunis ?? "Os leads desse funil alimentam o painel em tempo real."}
+          </span>
+        </div>
         <TextField
-          label="Link da planilha"
+          label="Link da planilha (opcional com funil)"
           name="linkPlanilha"
           icon={<IconLink />}
           placeholder="https://docs.google.com/spreadsheets/d/..."
           value={linkPlanilha}
           onChange={(e) => setLinkPlanilha(e.target.value)}
-          hint='A planilha precisa estar compartilhada como "Qualquer pessoa com o link → Leitor".'
-          required
+          hint='Com funil conectado, os leads da planilha são somados aos do CRM como histórico. Precisa estar compartilhada como "Qualquer pessoa com o link → Leitor".'
           disabled={enviando}
         />
         {!editando && (
@@ -262,7 +310,7 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
           </Button>
           <Button type="submit" variant="primary" disabled={enviando}>
             {enviando
-              ? "Validando planilha…"
+              ? "Validando…"
               : editando
                 ? "Salvar alterações"
                 : "Cadastrar cliente"}

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { atualizarCliente, buscarCliente, paraClientePublico, removerCliente } from "@/lib/db";
+import { buscarFunil } from "@/lib/pipefacil";
 import { buscarValoresPlanilha, extrairSheetId, validarCabecalho } from "@/lib/sheets";
 
 export async function GET(
@@ -28,6 +29,7 @@ export async function PATCH(
     nome?: string;
     segmento?: string;
     linkPlanilha?: string;
+    pipefacilPipelineSeq?: number | null;
     metaAdAccountId?: string;
     metaAccessToken?: string;
   };
@@ -53,17 +55,34 @@ export async function PATCH(
     return NextResponse.json({ erro: "Informe o segmento do cliente." }, { status: 400 });
   }
 
-  const sheetId = extrairSheetId(linkPlanilha);
-  if (!sheetId) {
+  const pipefacilPipelineSeq = Number(body.pipefacilPipelineSeq) || null;
+  if (!linkPlanilha && pipefacilPipelineSeq === null) {
+    return NextResponse.json(
+      { erro: "Escolha um funil do PipeFácil ou informe o link da planilha." },
+      { status: 400 },
+    );
+  }
+
+  // A planilha é opcional quando o cliente já tem funil no PipeFácil.
+  const sheetId = linkPlanilha ? extrairSheetId(linkPlanilha) : null;
+  if (linkPlanilha && !sheetId) {
     return NextResponse.json(
       { erro: "Não conseguimos identificar o ID da planilha nesse link. Cole o link completo do Google Sheets." },
       { status: 400 },
     );
   }
 
-  // Só reconsulta o Google Sheets se a planilha em si mudou — trocar
-  // apenas nome/segmento não deveria depender da API estar disponível.
-  if (sheetId !== cliente.sheetId) {
+  // Só reconsulta o PipeFácil e o Google Sheets se o funil ou a planilha
+  // mudaram — trocar apenas nome/segmento não deveria depender dessas APIs
+  // estarem disponíveis.
+  if (pipefacilPipelineSeq !== null && pipefacilPipelineSeq !== cliente.pipefacilPipelineSeq) {
+    const funil = await buscarFunil(process.env.PIPEFACIL_API_KEY ?? "", pipefacilPipelineSeq);
+    if (!funil.ok) {
+      return NextResponse.json({ erro: funil.mensagem }, { status: 422 });
+    }
+  }
+
+  if (sheetId && sheetId !== cliente.sheetId) {
     const resultado = await buscarValoresPlanilha(sheetId, cliente.abaNome);
     if (!resultado.ok) {
       return NextResponse.json({ erro: resultado.mensagem }, { status: 422 });
@@ -78,6 +97,7 @@ export async function PATCH(
     nome,
     segmento,
     sheetId,
+    pipefacilPipelineSeq,
     metaAdAccountId,
     metaAccessToken,
   });

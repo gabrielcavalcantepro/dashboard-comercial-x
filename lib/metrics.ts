@@ -187,9 +187,10 @@ export function computeFunil(leads: Lead[]): EtapaFunil[] {
     },
   ];
 
-  // "Comparecidos" e "Convertidos" só entram no funil se a planilha tiver as
-  // colunas "Compareceu?" e "Converteu?" — clientes sem essas colunas
-  // continuam com o funil de 3 etapas, sem mostrar um "0%" enganoso.
+  // "Comparecidos" e "Convertidos" só entram no funil se a fonte tiver esse
+  // dado (colunas "Compareceu?" e "Converteu?" na planilha, ou as etapas
+  // equivalentes no funil do PipeFácil) — clientes sem isso continuam com
+  // o funil de 3 etapas, sem mostrar um "0%" enganoso.
   const temComparecimento = leads.some((l) => l.compareceu !== null);
   if (temComparecimento) {
     const comparecidos = leads.filter((l) => l.compareceu === "Sim").length;
@@ -429,16 +430,18 @@ export function computeDesistenciaPosQualificacao(
 }
 
 export interface MotivoDesistenciaItem {
-  motivo: MotivoDesistencia;
+  motivo: MotivoDesistencia | string;
   total: number;
   percentual: number;
 }
 
 export function computeMotivosDesistencia(leads: Lead[]): MotivoDesistenciaItem[] {
   const desistiram = leads.filter((l) => l.status === "Desistiu");
-  const mapa = new Map<MotivoDesistencia, number>();
+  const mapa = new Map<string, number>();
   for (const lead of desistiram) {
-    const motivo = categorizarMotivo(lead.observacoes);
+    // Lead do PipeFácil já traz o "Motivo da perda" escolhido pelo vendedor;
+    // só os da planilha precisam ser categorizados a partir do texto livre.
+    const motivo = lead.motivoPerda || categorizarMotivo(lead.observacoes);
     mapa.set(motivo, (mapa.get(motivo) ?? 0) + 1);
   }
   const total = desistiram.length;

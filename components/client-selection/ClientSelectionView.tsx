@@ -53,7 +53,7 @@ export function ClientSelectionView({ clientes }: ClientSelectionViewProps) {
             Nenhum cliente cadastrado ainda
           </p>
           <p className="mt-2 max-w-[340px] text-[14px] text-[var(--color-text-muted)]">
-            Adicione o primeiro cliente conectando a planilha de leads do Google Sheets.
+            Adicione o primeiro cliente conectando o funil dele no PipeFácil.
           </p>
           <Button variant="primary" className="mt-6" onClick={() => setModalAberto(true)}>
             Adicionar cliente

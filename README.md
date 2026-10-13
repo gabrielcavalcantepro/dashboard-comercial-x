@@ -67,6 +67,7 @@ components/
   dashboard/               Página 2, filtros, KPIs, gráficos, relatório em PDF
 lib/
   sheets.ts                Leitura e validação da planilha do Google Sheets
+  pipefacil.ts             Leitura do funil do cliente no CRM PipeFácil (API pública)
   metrics.ts                Cálculo de KPIs, funil, distribuições e desistência
   reason-categorize.ts      Categorização do motivo de desistência a partir do texto livre
   db.ts                     Persistência dos clientes (Supabase)

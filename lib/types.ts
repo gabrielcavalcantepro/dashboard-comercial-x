@@ -17,6 +17,9 @@ export interface Lead {
   converteu: RespostaSimNao | null;
   dataAgendamento: string | null;
   observacoes: string;
+  // Motivo da perda já categorizado na origem (PipeFácil). Ausente nos leads
+  // da planilha, onde o motivo é deduzido do texto livre de observações.
+  motivoPerda?: string;
 }
 
 export type CampoEssencial =
@@ -49,8 +52,11 @@ export interface Cliente {
   id: string;
   nome: string;
   segmento: string;
-  sheetId: string;
+  // Cada cliente tem pelo menos uma fonte de leads: a planilha, o funil do
+  // PipeFácil, ou as duas (somadas: a planilha é o histórico anterior ao CRM).
+  sheetId: string | null;
   abaNome: string;
+  pipefacilPipelineSeq: number | null;
   criadoEm: string;
   metaAdAccountId: string | null;
   metaAccessToken: string | null;
@@ -68,6 +74,7 @@ export interface NovoClienteInput {
   segmento: string;
   linkPlanilha: string;
   abaNome: string;
+  pipefacilPipelineSeq?: number | null;
   metaAdAccountId?: string;
   metaAccessToken?: string;
 }

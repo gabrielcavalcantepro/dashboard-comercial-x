@@ -26,8 +26,9 @@ interface ClienteRow {
   id: string;
   nome: string;
   segmento: string;
-  sheet_id: string;
+  sheet_id: string | null;
   aba_nome: string;
+  pipefacil_pipeline_seq?: number | null;
   criado_em: string;
   meta_ad_account_id: string | null;
   meta_access_token: string | null;
@@ -40,6 +41,7 @@ function paraCliente(row: ClienteRow): Cliente {
     segmento: row.segmento,
     sheetId: row.sheet_id,
     abaNome: row.aba_nome,
+    pipefacilPipelineSeq: row.pipefacil_pipeline_seq ?? null,
     criadoEm: row.criado_em,
     metaAdAccountId: row.meta_ad_account_id,
     metaAccessToken: row.meta_access_token,
@@ -73,7 +75,7 @@ export async function buscarCliente(id: string): Promise<Cliente | null> {
 }
 
 export async function criarCliente(
-  input: NovoClienteInput & { sheetId: string },
+  input: NovoClienteInput & { sheetId: string | null },
 ): Promise<Cliente> {
   const { data, error } = await getClient()
     .from("clientes")
@@ -82,6 +84,7 @@ export async function criarCliente(
       segmento: input.segmento.trim(),
       sheet_id: input.sheetId,
       aba_nome: input.abaNome.trim() || "Leads",
+      pipefacil_pipeline_seq: input.pipefacilPipelineSeq ?? null,
       meta_ad_account_id: input.metaAdAccountId?.trim() || null,
       meta_access_token: input.metaAccessToken?.trim() || null,
     })
@@ -96,7 +99,8 @@ export async function atualizarCliente(
   dados: {
     nome: string;
     segmento: string;
-    sheetId: string;
+    sheetId: string | null;
+    pipefacilPipelineSeq: number | null;
     metaAdAccountId?: string;
     metaAccessToken?: string;
   },
@@ -105,6 +109,7 @@ export async function atualizarCliente(
     nome: dados.nome.trim(),
     segmento: dados.segmento.trim(),
     sheet_id: dados.sheetId,
+    pipefacil_pipeline_seq: dados.pipefacilPipelineSeq,
     meta_ad_account_id: dados.metaAdAccountId?.trim() || null,
   };
   // O token nunca volta pro navegador (ver ClientePublico), então o campo

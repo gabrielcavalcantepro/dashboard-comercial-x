@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { criarCliente, listarClientes, paraClientePublico } from "@/lib/db";
+import { buscarFunil } from "@/lib/pipefacil";
 import { buscarValoresPlanilha, extrairSheetId, validarCabecalho } from "@/lib/sheets";
 import type { NovoClienteInput } from "@/lib/types";
 
@@ -33,22 +34,41 @@ export async function POST(req: Request) {
     return NextResponse.json({ erro: "Informe o segmento do cliente." }, { status: 400 });
   }
 
-  const sheetId = extrairSheetId(linkPlanilha);
-  if (!sheetId) {
+  const pipefacilPipelineSeq = Number(body.pipefacilPipelineSeq) || null;
+  if (!linkPlanilha && pipefacilPipelineSeq === null) {
     return NextResponse.json(
-      { erro: "Não conseguimos identificar o ID da planilha nesse link. Cole o link completo do Google Sheets." },
+      { erro: "Escolha um funil do PipeFácil ou informe o link da planilha." },
       { status: 400 },
     );
   }
 
-  const resultado = await buscarValoresPlanilha(sheetId, abaNome);
-  if (!resultado.ok) {
-    return NextResponse.json({ erro: resultado.mensagem }, { status: 422 });
+  // A planilha é opcional quando o cliente já tem funil no PipeFácil.
+  let sheetId: string | null = null;
+  if (linkPlanilha) {
+    sheetId = extrairSheetId(linkPlanilha);
+    if (!sheetId) {
+      return NextResponse.json(
+        { erro: "Não conseguimos identificar o ID da planilha nesse link. Cole o link completo do Google Sheets." },
+        { status: 400 },
+      );
+    }
+
+    const resultado = await buscarValoresPlanilha(sheetId, abaNome);
+    if (!resultado.ok) {
+      return NextResponse.json({ erro: resultado.mensagem }, { status: 422 });
+    }
+
+    const validacao = validarCabecalho(resultado.cabecalho);
+    if (!validacao.ok) {
+      return NextResponse.json({ erro: validacao.mensagem }, { status: 422 });
+    }
   }
 
-  const validacao = validarCabecalho(resultado.cabecalho);
-  if (!validacao.ok) {
-    return NextResponse.json({ erro: validacao.mensagem }, { status: 422 });
+  if (pipefacilPipelineSeq !== null) {
+    const funil = await buscarFunil(process.env.PIPEFACIL_API_KEY ?? "", pipefacilPipelineSeq);
+    if (!funil.ok) {
+      return NextResponse.json({ erro: funil.mensagem }, { status: 422 });
+    }
   }
 
   const cliente = await criarCliente({
@@ -57,6 +77,7 @@ export async function POST(req: Request) {
     linkPlanilha,
     abaNome,
     sheetId,
+    pipefacilPipelineSeq,
     metaAdAccountId,
     metaAccessToken,
   });
