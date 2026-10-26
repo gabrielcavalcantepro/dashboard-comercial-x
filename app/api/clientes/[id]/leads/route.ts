@@ -61,7 +61,12 @@ async function carregarLeads(cliente: Cliente): Promise<Carga> {
   }
 
   const [crm, planilha] = await Promise.all([
-    buscarLeadsDoFunil(cliente.pipefacilPipelineSeq),
+    buscarLeadsDoFunil(
+      cliente.pipefacilPipelineSeq,
+      cliente.metaAdAccountId && cliente.metaAccessToken
+        ? { adAccountId: cliente.metaAdAccountId, token: cliente.metaAccessToken }
+        : undefined,
+    ),
     cliente.sheetId ? carregarDaPlanilha(cliente.sheetId, cliente.abaNome) : null,
   ]);
   if (!crm.ok) return { ok: false, mensagem: crm.mensagem };

@@ -582,6 +582,12 @@ export function computeCriativos(
       if (!r.ultimoLead || d > r.ultimoLead) r.ultimoLead = d;
     }
   }
+  // Criativo no ar sem nenhum lead entra zerado, no fim da lista.
+  for (const criativo of Object.values(criativos)) {
+    if (criativo.ativo && !mapa.has(criativo.chave)) {
+      mapa.set(criativo.chave, { ...funilVazio(), criativo, primeiroLead: null, ultimoLead: null });
+    }
+  }
   const lista = Array.from(mapa.values())
     .map(comTaxa)
     .sort(

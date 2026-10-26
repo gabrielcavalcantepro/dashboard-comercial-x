@@ -12,6 +12,8 @@ import {
   salvarEnriquecimentos,
   urlMiniaturaArquivada,
 } from "./db";
+import { chaveDeMiniatura, chaveDeTexto } from "./criativo-chave";
+import { buscarIndiceCriativos, type CriativoNaConta } from "./meta-ads";
 import type { AnuncioOrigem, Criativo, Lead, RespostaSimNao } from "./types";
 
 const BASE_URL = "https://pipefacil-server.matchsales.com.br";
@@ -503,23 +505,22 @@ export function converterNegocios(
 
 // ---------- Criativos: agrupamento e miniaturas ----------
 
-// O mesmo vídeo ou imagem vira um post diferente em cada anúncio e
-// posicionamento (Instagram, Facebook via fb.me), mas a miniatura que o Meta
-// manda aponta sempre para o mesmo arquivo. O nome desse arquivo identifica
-// o criativo; sem miniatura, cada post fica sozinho.
+// O mesmo criativo vira um post diferente em cada anúncio e posicionamento
+// (Instagram, Facebook via fb.me) — ver criativo-chave.ts. Sem miniatura nem
+// texto, cada post fica sozinho.
 export function chaveDoCriativo(anuncio: AnuncioOrigem): string {
-  const arquivo = anuncio.miniatura?.split("?")[0].split("/").pop();
-  const m = arquivo?.match(/^(.+?)(?:_n)?\.(?:jpe?g|png|webp)$/i);
-  return m ? m[1] : anuncio.url;
+  return chaveDeMiniatura(anuncio.miniatura) ?? chaveDeTexto(anuncio.texto) ?? anuncio.url;
 }
 
 // Agrupa os anúncios de origem dos leads em criativos. O link do post
-// exibido é o que mais trouxe leads; a miniatura é a cópia arquivada, ou o
-// link do Meta mais recente (os mais antigos já expiraram).
+// exibido é o que mais trouxe leads. A miniatura é, nessa ordem: a cópia
+// arquivada, a atual da conta de anúncios do Meta (quando configurada) ou a
+// da mensagem mais recente (as mais antigas já expiraram).
 export function agruparCriativos(
   negocios: PipeFacilNegocio[],
   enriquecimentos: Map<number, EnriquecimentoNegocio>,
   arquivadas: Set<string>,
+  meta: Map<string, CriativoNaConta>,
 ): Record<string, Criativo> {
   const grupos = new Map<
     string,
@@ -544,6 +545,7 @@ export function agruparCriativos(
   const criativos: Record<string, Criativo> = {};
   for (const [chave, g] of grupos) {
     const postPrincipal = [...g.posts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    const naConta = meta.get(chave);
     criativos[chave] = {
       chave,
       url: postPrincipal,
@@ -551,7 +553,11 @@ export function agruparCriativos(
       titulo: g.anuncio.titulo,
       texto: g.anuncio.texto,
       tipoMidia: g.anuncio.tipoMidia,
-      miniatura: arquivadas.has(chave) ? urlMiniaturaArquivada(chave) : g.anuncio.miniatura,
+      miniatura: arquivadas.has(chave)
+        ? urlMiniaturaArquivada(chave)
+        : (naConta?.miniatura ?? g.anuncio.miniatura),
+      ativo: naConta ? naConta.ativo : null,
+      variacoes: naConta && naConta.variacoes > 1 && chave.startsWith("txt_") ? naConta.variacoes : null,
     };
   }
   return criativos;
@@ -682,7 +688,32 @@ export type LeadsDoFunil =
   | PipeFacilErro;
 
 // Tudo que o painel precisa de um funil, já no formato de Lead.
-export async function buscarLeadsDoFunil(pipelineSeq: number): Promise<LeadsDoFunil> {
+// Conta de anúncios do Meta do cliente, quando configurada: dá miniatura e
+// status (no ar ou não) aos criativos.
+export interface ContaMeta {
+  adAccountId: string;
+  token: string;
+}
+
+// Conta grande (centenas de anúncios) leva vários segundos para listar. O
+// painel não espera mais que isso: segue sem os dados do Meta e os mostra na
+// próxima atualização, quando o índice (que continua carregando) já estiver
+// em cache.
+const ESPERA_MAXIMA_INDICE_MS = 3_000;
+
+function indiceSemBloquear(conta: ContaMeta): Promise<Map<string, CriativoNaConta>> {
+  return Promise.race([
+    buscarIndiceCriativos(conta.adAccountId, conta.token),
+    new Promise<Map<string, CriativoNaConta>>((resolve) =>
+      setTimeout(() => resolve(new Map()), ESPERA_MAXIMA_INDICE_MS),
+    ),
+  ]);
+}
+
+export async function buscarLeadsDoFunil(
+  pipelineSeq: number,
+  contaMeta?: ContaMeta,
+): Promise<LeadsDoFunil> {
   const apiKey = process.env.PIPEFACIL_API_KEY ?? "";
   const [funil, negocios, campos] = await Promise.all([
     buscarFunil(apiKey, pipelineSeq),
@@ -697,8 +728,29 @@ export async function buscarLeadsDoFunil(pipelineSeq: number): Promise<LeadsDoFu
   const leads = converterNegocios(funil.dados, negocios.dados, campos.dados, enriquecimentos);
 
   // Os dados do anúncio vão uma vez por criativo, não repetidos em cada lead.
-  const arquivadas = await listarMiniaturasArquivadas();
-  const anuncios = agruparCriativos(negocios.dados, enriquecimentos, arquivadas);
+  const [arquivadas, indiceMeta] = await Promise.all([
+    listarMiniaturasArquivadas(),
+    contaMeta
+      ? indiceSemBloquear(contaMeta)
+      : Promise.resolve(new Map<string, CriativoNaConta>()),
+  ]);
+  const anuncios = agruparCriativos(negocios.dados, enriquecimentos, arquivadas, indiceMeta);
+  // Criativos no ar que ainda não trouxeram nenhum lead também aparecem —
+  // saber que um anúncio está rodando sem gerar conversa é informação.
+  for (const [chave, naConta] of indiceMeta) {
+    if (!naConta.ativo || anuncios[chave]) continue;
+    anuncios[chave] = {
+      chave,
+      url: naConta.url ?? "",
+      posts: 0,
+      titulo: "",
+      texto: naConta.texto,
+      tipoMidia: naConta.tipoMidia,
+      miniatura: arquivadas.has(chave) ? urlMiniaturaArquivada(chave) : naConta.miniatura,
+      ativo: true,
+      variacoes: naConta.variacoes > 1 ? naConta.variacoes : null,
+    };
+  }
   await arquivarMiniaturasNovas(anuncios, arquivadas);
 
   const avisos: string[] = [];

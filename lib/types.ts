@@ -119,4 +119,7 @@ export interface Criativo {
   texto: string;
   miniatura: string | null;
   tipoMidia: string | null;
+  // Da conta de anúncios do Meta, quando configurada; null = não se sabe.
+  ativo: boolean | null;
+  variacoes: number | null; // imagens diferentes com o mesmo texto
 }

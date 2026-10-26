@@ -114,19 +114,45 @@ function OrigemCriativo({ resultado }: { resultado: ResultadoCriativo }) {
         <span className="line-clamp-2 text-[13px] leading-snug text-[var(--color-text)]" title={descricao}>
           {descricao}
         </span>
-        <span className="mt-1 flex items-center gap-1.5 text-[11.5px]">
+        <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11.5px]">
+          {criativo.ativo !== null && (
+            <span
+              className="rounded-full border px-1.5 py-px text-[10.5px] leading-none"
+              style={
+                criativo.ativo
+                  ? { borderColor: "var(--color-accent-border)", color: "var(--color-accent)" }
+                  : { borderColor: "var(--color-border-strong)", color: "var(--color-text-faint)" }
+              }
+            >
+              {criativo.ativo ? "no ar" : "pausado"}
+            </span>
+          )}
           {periodo && <span>{periodo}</span>}
           {periodo && <span aria-hidden>·</span>}
-          <span>{criativo.posts > 1 ? `${criativo.posts} posts` : "1 post"}</span>
-          <span aria-hidden>·</span>
-          <a
-            href={criativo.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline-offset-2 hover:text-[var(--color-accent)] hover:underline"
-          >
-            ver post
-          </a>
+          {criativo.variacoes && (
+            <>
+              <span title="Anúncios de imagem com o mesmo texto não têm como ser separados pela mensagem do WhatsApp.">
+                {criativo.variacoes} imagens
+              </span>
+              <span aria-hidden>·</span>
+            </>
+          )}
+          {criativo.posts === 0 ? (
+            <span>nenhum lead no CRM</span>
+          ) : (
+            <span>{criativo.posts > 1 ? `${criativo.posts} posts` : "1 post"}</span>
+          )}
+          {criativo.url && <span aria-hidden>·</span>}
+          {criativo.url && (
+            <a
+              href={criativo.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline-offset-2 hover:text-[var(--color-accent)] hover:underline"
+            >
+              ver post
+            </a>
+          )}
         </span>
       </span>
     </span>

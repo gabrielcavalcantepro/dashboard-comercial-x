@@ -8,6 +8,8 @@ import {
   type MetaPontoDiario,
 } from "./meta-types";
 
+import { chaveDeMiniatura, chaveDeTexto } from "./criativo-chave";
+
 const BASE_URL = "https://graph.facebook.com/v21.0";
 
 export interface MetaAdsError {
@@ -304,4 +306,126 @@ export async function buscarDadosAds(
       criativos: criativos.data,
     },
   };
+}
+
+// ---------- Criativos da conta (para o "Resultado por criativo") ----------
+//
+// Índice de todos os anúncios da conta — inclusive pausados e arquivados,
+// que ainda têm leads no CRM — pela mesma chave usada nos anúncios de origem
+// dos leads (ver criativo-chave.ts). Serve para dar miniatura atual aos
+// criativos cujo link de imagem na mensagem do WhatsApp expirou ou nunca
+// existiu (anúncio de imagem), e para dizer se o criativo está no ar.
+
+export interface CriativoNaConta {
+  ativo: boolean;
+  miniatura: string | null;
+  variacoes: number; // anúncios de imagem diferentes com o mesmo texto
+  // Para listar o criativo no ar que ainda não trouxe nenhum lead.
+  texto: string;
+  url: string | null; // post no Instagram
+  tipoMidia: "video" | "image";
+}
+
+interface AnuncioIndiceRaw {
+  effective_status: string;
+  creative?: {
+    body?: string;
+    thumbnail_url?: string;
+    instagram_permalink_url?: string;
+    image_hash?: string;
+    video_id?: string;
+    object_story_spec?: {
+      video_data?: { video_id?: string; message?: string };
+      link_data?: { message?: string; image_hash?: string };
+    };
+  };
+}
+
+const TODOS_OS_STATUS = [
+  "ACTIVE",
+  "PAUSED",
+  "CAMPAIGN_PAUSED",
+  "ADSET_PAUSED",
+  "ARCHIVED",
+  "DELETED",
+  "WITH_ISSUES",
+  "DISAPPROVED",
+  "IN_PROCESS",
+  "PENDING_REVIEW",
+];
+
+const VALIDADE_INDICE_MS = 10 * 60_000;
+
+declare global {
+  var __indiceCriativosMeta:
+    | Map<string, { em: number; indice: Promise<Map<string, CriativoNaConta>> }>
+    | undefined;
+}
+
+export function buscarIndiceCriativos(
+  adAccountId: string,
+  token: string,
+): Promise<Map<string, CriativoNaConta>> {
+  if (!global.__indiceCriativosMeta) global.__indiceCriativosMeta = new Map();
+  const cache = global.__indiceCriativosMeta;
+  const conta = normalizarAdAccountId(adAccountId);
+  const atual = cache.get(conta);
+  if (atual && Date.now() - atual.em < VALIDADE_INDICE_MS) return atual.indice;
+
+  const indice = montarIndice(conta, token);
+  cache.set(conta, { em: Date.now(), indice });
+  return indice;
+}
+
+async function montarIndice(conta: string, token: string): Promise<Map<string, CriativoNaConta>> {
+  const fields =
+    "effective_status,creative{body,thumbnail_url,instagram_permalink_url,image_hash,video_id," +
+    "object_story_spec{video_data{video_id,message},link_data{message,image_hash}}}";
+  const filtering = JSON.stringify([
+    { field: "effective_status", operator: "IN", value: TODOS_OS_STATUS },
+  ]);
+  // thumbnail_width/height pedem uma miniatura maior que o padrão de 64 px.
+  let url: string | undefined =
+    `${BASE_URL}/${conta}/ads?fields=${encodeURIComponent(fields)}` +
+    `&filtering=${encodeURIComponent(filtering)}&thumbnail_width=400&thumbnail_height=400` +
+    `&limit=50&access_token=${token}`;
+
+  const indice = new Map<string, CriativoNaConta & { imagens: Set<string> }>();
+  for (let pagina = 0; url && pagina < 30; pagina++) {
+    const res: { ok: true; data: { data: AnuncioIndiceRaw[]; paging?: { next?: string } } } | MetaAdsError =
+      await chamarGraphApi(url);
+    if (!res.ok) {
+      console.warn("Não foi possível ler os criativos da conta do Meta:", res.mensagem);
+      break;
+    }
+    for (const ad of res.data.data) {
+      const c = ad.creative ?? {};
+      const ehVideo = Boolean(c.video_id || c.object_story_spec?.video_data);
+      const chave = ehVideo
+        ? chaveDeMiniatura(c.thumbnail_url)
+        : chaveDeTexto(c.body ?? c.object_story_spec?.link_data?.message);
+      if (!chave) continue;
+      const ativo = ad.effective_status === "ACTIVE";
+      const texto = c.body ?? c.object_story_spec?.video_data?.message ?? c.object_story_spec?.link_data?.message ?? "";
+      const item = indice.get(chave) ?? {
+        ativo: false,
+        miniatura: null,
+        variacoes: 0,
+        imagens: new Set<string>(),
+        texto,
+        url: null,
+        tipoMidia: ehVideo ? ("video" as const) : ("image" as const),
+      };
+      if (!item.texto) item.texto = texto;
+      if (c.instagram_permalink_url && (!item.url || ativo)) item.url = c.instagram_permalink_url;
+      // Prefere a miniatura de um anúncio que está no ar.
+      if (c.thumbnail_url && (!item.miniatura || (ativo && !item.ativo))) item.miniatura = c.thumbnail_url;
+      item.ativo ||= ativo;
+      const imagem = c.image_hash ?? c.object_story_spec?.link_data?.image_hash;
+      if (!ehVideo && imagem) item.imagens.add(imagem);
+      indice.set(chave, item);
+    }
+    url = res.data.paging?.next;
+  }
+  return new Map([...indice].map(([k, { imagens, ...v }]) => [k, { ...v, variacoes: imagens.size }]));
 }
