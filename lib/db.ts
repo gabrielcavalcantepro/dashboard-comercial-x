@@ -197,17 +197,23 @@ export async function salvarEnriquecimentos(itens: EnriquecimentoNegocio[]): Pro
 const BUCKET_MINIATURAS = "miniaturas-criativos";
 
 declare global {
-  var __miniaturasArquivadas: Promise<Set<string>> | undefined;
+  var __miniaturasArquivadas: { em: number; chaves: Promise<Set<string>> } | undefined;
 }
+
+// Relista de tempos em tempos: uma cópia feita por outro processo (outra
+// instância do servidor, ou um script de carga) só aparece depois disso.
+const VALIDADE_LISTA_MINIATURAS_MS = 5 * 60_000;
 
 export function urlMiniaturaArquivada(chave: string): string {
   return getClient().storage.from(BUCKET_MINIATURAS).getPublicUrl(`${chave}.jpg`).data.publicUrl;
 }
 
-// Lista uma vez por processo; depois o conjunto é atualizado a cada cópia.
+// Entre uma listagem e outra, o conjunto é atualizado a cada cópia feita
+// por este processo.
 export function listarMiniaturasArquivadas(): Promise<Set<string>> {
-  if (!global.__miniaturasArquivadas) {
-    global.__miniaturasArquivadas = (async () => {
+  const atual = global.__miniaturasArquivadas;
+  if (!atual || Date.now() - atual.em > VALIDADE_LISTA_MINIATURAS_MS) {
+    const chaves = (async () => {
       const chaves = new Set<string>();
       for (let offset = 0; ; offset += 1000) {
         const { data, error } = await getClient()
@@ -222,8 +228,9 @@ export function listarMiniaturasArquivadas(): Promise<Set<string>> {
       }
       return chaves;
     })();
+    global.__miniaturasArquivadas = { em: Date.now(), chaves };
   }
-  return global.__miniaturasArquivadas;
+  return global.__miniaturasArquivadas!.chaves;
 }
 
 export async function arquivarMiniatura(chave: string, url: string): Promise<boolean> {
