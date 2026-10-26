@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { EnriquecimentoNegocio } from "./pipefacil";
 import type { Cliente, ClientePublico, NovoClienteInput } from "./types";
 
 declare global {
@@ -132,4 +133,57 @@ export async function atualizarCliente(
 export async function removerCliente(id: string): Promise<void> {
   const { error } = await getClient().from("clientes").delete().eq("id", id);
   if (error) throw error;
+}
+
+// ---------- Histórico e anúncio de origem dos leads do PipeFácil ----------
+
+interface NegocioPipeFacilRow {
+  seq: number;
+  etapa_alterada_em: string | null;
+  historico: EnriquecimentoNegocio["historico"];
+  anuncio: EnriquecimentoNegocio["anuncio"];
+  anuncio_lido: boolean;
+}
+
+// As duas funções engolem erro de propósito: sem a tabela (ou com o banco
+// fora do ar) o painel continua funcionando, só relendo do CRM o que não
+// estiver em memória.
+export async function carregarEnriquecimentos(seqs: number[]): Promise<EnriquecimentoNegocio[]> {
+  const resultado: EnriquecimentoNegocio[] = [];
+  for (let i = 0; i < seqs.length; i += 300) {
+    const { data, error } = await getClient()
+      .from("pipefacil_negocios")
+      .select("seq,etapa_alterada_em,historico,anuncio,anuncio_lido")
+      .in("seq", seqs.slice(i, i + 300));
+    if (error) {
+      console.warn("pipefacil_negocios indisponível:", error.message);
+      return resultado;
+    }
+    for (const row of (data ?? []) as NegocioPipeFacilRow[]) {
+      resultado.push({
+        seq: row.seq,
+        etapaAlteradaEm: row.etapa_alterada_em,
+        historico: row.historico,
+        anuncio: row.anuncio,
+        anuncioLido: row.anuncio_lido,
+      });
+    }
+  }
+  return resultado;
+}
+
+export async function salvarEnriquecimentos(itens: EnriquecimentoNegocio[]): Promise<void> {
+  const { error } = await getClient()
+    .from("pipefacil_negocios")
+    .upsert(
+      itens.map((e) => ({
+        seq: e.seq,
+        etapa_alterada_em: e.etapaAlteradaEm,
+        historico: e.historico,
+        anuncio: e.anuncio,
+        anuncio_lido: e.anuncioLido,
+        atualizado_em: new Date().toISOString(),
+      })),
+    );
+  if (error) console.warn("Não foi possível salvar em pipefacil_negocios:", error.message);
 }

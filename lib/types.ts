@@ -3,6 +3,7 @@ export type RespostaSimNao = "Sim" | "Não" | "Indefinido";
 
 export interface Lead {
   linha: number;
+  fonteDados: "planilha" | "pipefacil";
   dataContato: string | null; // ISO yyyy-mm-dd
   dataContatoRaw: string;
   vendedor: string;
@@ -20,6 +21,35 @@ export interface Lead {
   // Motivo da perda já categorizado na origem (PipeFácil). Ausente nos leads
   // da planilha, onde o motivo é deduzido do texto livre de observações.
   motivoPerda?: string;
+  // Data (ISO) em que o lead atingiu cada etapa, vinda do histórico do
+  // PipeFácil. Ausente nos leads da planilha, que só têm a data de contato
+  // (ver marcosDoLead em metrics.ts).
+  marcos?: DatasMarcos;
+  // Só existe em lead projetado num período (ver projetarNoPeriodo): false
+  // quando ele entrou no recorte por um evento (ex.: agendou no período)
+  // mas chegou antes — não conta como lead novo do período.
+  chegou?: boolean;
+  // Link do post do anúncio que trouxe o lead (chave de AnuncioOrigem).
+  // undefined = origem ainda não lida; null = lida, sem anúncio.
+  anuncio?: string | null;
+}
+
+export interface DatasMarcos {
+  qualificado: string | null;
+  agendado: string | null;
+  compareceu: string | null;
+  converteu: string | null;
+  desistiu: string | null;
+}
+
+// Anúncio de clique para WhatsApp que originou a conversa, como o Meta o
+// descreve na primeira mensagem do lead.
+export interface AnuncioOrigem {
+  url: string;
+  titulo: string;
+  texto: string;
+  miniatura: string | null;
+  tipoMidia: string | null;
 }
 
 export type CampoEssencial =

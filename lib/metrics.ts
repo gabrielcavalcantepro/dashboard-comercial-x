@@ -1,4 +1,4 @@
-import type { Lead, StatusLead } from "./types";
+import type { AnuncioOrigem, DatasMarcos, Lead, StatusLead } from "./types";
 import { categorizarMotivo, type MotivoDesistencia } from "./reason-categorize";
 import {
   addDaysISO,
@@ -41,13 +41,66 @@ export function excluirResgate(leads: Lead[]): Lead[] {
   return leads.filter((l) => l.fonte !== FONTE_RESGATE);
 }
 
+// Lead da planilha não tem histórico de etapas: tudo que ele atingiu fica
+// datado no dia do contato, o que mantém para ele a leitura por safra.
+export function marcosDoLead(lead: Lead): DatasMarcos {
+  if (lead.marcos) return lead.marcos;
+  const d = lead.dataContato;
+  return {
+    qualificado: lead.qualificado ? d : null,
+    agendado: lead.status === "Agendado" ? d : null,
+    compareceu: lead.compareceu === "Sim" ? d : null,
+    converteu: lead.converteu === "Sim" ? d : null,
+    desistiu: lead.status === "Desistiu" ? d : null,
+  };
+}
+
+// Lead projetado num período chegou nele ou só teve um evento nele; fora
+// de um período todo lead conta como chegada.
+export function chegou(lead: Lead): boolean {
+  return lead.chegou !== false;
+}
+
+function dentro(data: string | null, periodo: Periodo): boolean {
+  return data !== null && data >= periodo.inicio && data <= periodo.fim;
+}
+
+// Recorte por data do evento: o lead conta como chegada se o contato foi no
+// período, e cada etapa (qualificou, agendou, compareceu, converteu,
+// desistiu) conta se aconteceu no período — mesmo que o lead tenha chegado
+// antes. Devolve null se nada dele aconteceu no período.
+export function projetarNoPeriodo(lead: Lead, periodo: Periodo): Lead | null {
+  const m = marcosDoLead(lead);
+  const chegouNoPeriodo = dentro(lead.dataContato, periodo);
+  const qualificou = dentro(m.qualificado, periodo);
+  const agendou = dentro(m.agendado, periodo);
+  const compareceu = dentro(m.compareceu, periodo);
+  const converteu = dentro(m.converteu, periodo);
+  const desistiu = dentro(m.desistiu, periodo);
+  if (!chegouNoPeriodo && !qualificou && !agendou && !compareceu && !converteu && !desistiu) {
+    return null;
+  }
+
+  let status: StatusLead | null = "Avaliando";
+  if (desistiu) status = "Desistiu";
+  else if (agendou) status = "Agendado";
+  else if (lead.status === null && chegouNoPeriodo) status = null;
+
+  return {
+    ...lead,
+    chegou: chegouNoPeriodo,
+    qualificado: qualificou,
+    status,
+    compareceu: compareceu ? "Sim" : lead.compareceu === null ? null : "Indefinido",
+    converteu: converteu ? "Sim" : lead.converteu === null ? null : "Indefinido",
+  };
+}
+
 export function filtrarLeads(leads: Lead[], filtros: Filtros): Lead[] {
-  return leads.filter((lead) => {
-    if (filtros.periodo) {
-      if (!lead.dataContato) return false;
-      if (lead.dataContato < filtros.periodo.inicio) return false;
-      if (lead.dataContato > filtros.periodo.fim) return false;
-    }
+  const recorte = filtros.periodo
+    ? leads.flatMap((l) => projetarNoPeriodo(l, filtros.periodo!) ?? [])
+    : leads;
+  return recorte.filter((lead) => {
     if (filtros.vendedores.length && !filtros.vendedores.includes(lead.vendedor))
       return false;
     if (filtros.fontes.length && !filtros.fontes.includes(lead.fonte))
@@ -100,13 +153,13 @@ export interface KpiValues {
 }
 
 export function computeKpis(leads: Lead[]): KpiValues {
-  const totalLeads = leads.length;
+  const totalLeads = leads.filter(chegou).length;
   const qualificados = leads.filter((l) => l.qualificado).length;
   const agendamentos = leads.filter((l) => l.status === "Agendado").length;
   const emAvaliacao = leads.filter((l) => l.status === "Avaliando").length;
   const desistiu = leads.filter((l) => l.status === "Desistiu").length;
 
-  const comTicket = leads.filter((l) => l.ticketMedio !== null);
+  const comTicket = leads.filter((l) => chegou(l) && l.ticketMedio !== null);
   const ticketMedio = comTicket.length
     ? comTicket.reduce((s, l) => s + (l.ticketMedio ?? 0), 0) / comTicket.length
     : null;
@@ -163,7 +216,7 @@ export interface EtapaFunil {
 }
 
 export function computeFunil(leads: Lead[]): EtapaFunil[] {
-  const total = leads.length;
+  const total = leads.filter(chegou).length;
   const qualificados = leads.filter((l) => l.qualificado).length;
   const agendados = leads.filter((l) => l.status === "Agendado").length;
 
@@ -228,7 +281,7 @@ export function contarPor(
   chaveFn: (l: Lead) => string,
 ): ContagemItem[] {
   const mapa = new Map<string, number>();
-  for (const lead of leads) {
+  for (const lead of leads.filter(chegou)) {
     const chave = chaveFn(lead);
     mapa.set(chave, (mapa.get(chave) ?? 0) + 1);
   }
@@ -242,7 +295,7 @@ export function ticketMedioPor(
   chaveFn: (l: Lead) => string,
 ): { chave: string; media: number; amostras: number }[] {
   const mapa = new Map<string, number[]>();
-  for (const lead of leads) {
+  for (const lead of leads.filter(chegou)) {
     if (lead.ticketMedio === null) continue;
     const chave = chaveFn(lead);
     if (!mapa.has(chave)) mapa.set(chave, []);
@@ -261,7 +314,7 @@ const ORDEM_SEMANA = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 
 export function leadsPorDiaDaSemana(leads: Lead[]): ContagemItem[] {
   const contagem = new Map(ORDEM_SEMANA.map((d) => [d, 0]));
-  for (const lead of leads) {
+  for (const lead of leads.filter(chegou)) {
     if (!lead.dataContato) continue;
     const dia = weekdayShort(lead.dataContato);
     contagem.set(dia, (contagem.get(dia) ?? 0) + 1);
@@ -312,36 +365,37 @@ export interface PontoEvolucao {
   taxaAgendamento: number | null;
 }
 
+// Cada número cai no período em que aconteceu: chegada pela data de contato,
+// qualificação, agendamento e desistência pela data em que o lead atingiu
+// a etapa.
 export function computeEvolucao(
   leads: Lead[],
   granularidade: Granularidade,
 ): PontoEvolucao[] {
-  const comData = leads.filter((l) => l.dataContato);
-  const mapa = new Map<string, Lead[]>();
-  for (const lead of comData) {
-    const chave = chaveBucket(lead.dataContato!, granularidade);
-    if (!mapa.has(chave)) mapa.set(chave, []);
-    mapa.get(chave)!.push(lead);
+  const mapa = new Map<string, { total: number; qualificados: number; agendados: number; desistiu: number }>();
+  const somar = (data: string | null, campo: "total" | "qualificados" | "agendados" | "desistiu") => {
+    if (!data) return;
+    const chave = chaveBucket(data, granularidade);
+    if (!mapa.has(chave)) mapa.set(chave, { total: 0, qualificados: 0, agendados: 0, desistiu: 0 });
+    mapa.get(chave)![campo]++;
+  };
+  for (const lead of leads) {
+    const m = marcosDoLead(lead);
+    if (chegou(lead)) somar(lead.dataContato, "total");
+    if (lead.qualificado) somar(m.qualificado, "qualificados");
+    if (lead.status === "Agendado") somar(m.agendado, "agendados");
+    if (lead.status === "Desistiu") somar(m.desistiu, "desistiu");
   }
 
   return Array.from(mapa.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([chave, grupo]) => {
-      const total = grupo.length;
-      const qualificados = grupo.filter((l) => l.qualificado).length;
-      const agendados = grupo.filter((l) => l.status === "Agendado").length;
-      const desistiu = grupo.filter((l) => l.status === "Desistiu").length;
-      return {
-        chave,
-        rotulo: rotuloBucket(chave, granularidade),
-        total,
-        qualificados,
-        agendados,
-        desistiu,
-        taxaQualificacao: total ? (qualificados / total) * 100 : null,
-        taxaAgendamento: qualificados ? (agendados / qualificados) * 100 : null,
-      };
-    });
+    .map(([chave, c]) => ({
+      chave,
+      rotulo: rotuloBucket(chave, granularidade),
+      ...c,
+      taxaQualificacao: c.total ? (c.qualificados / c.total) * 100 : null,
+      taxaAgendamento: c.qualificados ? (c.agendados / c.qualificados) * 100 : null,
+    }));
 }
 
 // ---------- Performance por vendedor ----------
@@ -369,15 +423,16 @@ export function computePerformancePorVendedor(leads: Lead[]): PerformanceVendedo
       const qualificados = grupo.filter((l) => l.qualificado).length;
       const agendamentos = grupo.filter((l) => l.status === "Agendado").length;
       const desistencias = grupo.filter((l) => l.status === "Desistiu").length;
-      const comTicket = grupo.filter((l) => l.ticketMedio !== null);
+      const chegaram = grupo.filter(chegou).length;
+      const comTicket = grupo.filter((l) => chegou(l) && l.ticketMedio !== null);
       return {
         vendedor,
-        leads: grupo.length,
+        leads: chegaram,
         qualificados,
         agendamentos,
         desistencias,
         taxaConversao: qualificados ? (agendamentos / qualificados) * 100 : null,
-        taxaDesistencia: grupo.length ? (desistencias / grupo.length) * 100 : null,
+        taxaDesistencia: chegaram ? (desistencias / chegaram) * 100 : null,
         ticketMedio: comTicket.length
           ? comTicket.reduce((s, l) => s + (l.ticketMedio ?? 0), 0) / comTicket.length
           : null,
@@ -401,11 +456,12 @@ export function taxaDesistenciaPor(
   return Array.from(mapa.entries())
     .map(([chave, grupo]) => {
       const desistencias = grupo.filter((l) => l.status === "Desistiu").length;
+      const total = grupo.filter(chegou).length;
       return {
         chave,
-        total: grupo.length,
+        total,
         desistencias,
-        taxa: grupo.length ? (desistencias / grupo.length) * 100 : 0,
+        taxa: total ? (desistencias / total) * 100 : 0,
       };
     })
     .sort((a, b) => b.taxa - a.taxa);
@@ -452,6 +508,67 @@ export function computeMotivosDesistencia(leads: Lead[]): MotivoDesistenciaItem[
       percentual: total ? (count / total) * 100 : 0,
     }))
     .sort((a, b) => b.total - a.total);
+}
+
+// ---------- Criativos (anúncio de origem) ----------
+
+export interface ResultadoCriativo {
+  anuncio: AnuncioOrigem;
+  leads: number;
+  qualificados: number;
+  agendados: number;
+  comparecidos: number;
+  convertidos: number;
+  taxaAgendamento: number | null; // agendados / leads
+}
+
+export interface CriativosResumo {
+  criativos: ResultadoCriativo[];
+  semAnuncio: number;
+  pendentes: number; // leads cuja origem ainda não foi lida no CRM
+}
+
+// Agrupa o funil pelo anúncio que trouxe cada lead, com as mesmas regras do
+// funil de conversão (um lead que agendou e depois desistiu sai de Agendados).
+export function computeCriativos(
+  leads: Lead[],
+  anuncios: Record<string, AnuncioOrigem>,
+): CriativosResumo {
+  const mapa = new Map<string, ResultadoCriativo>();
+  let semAnuncio = 0;
+  let pendentes = 0;
+  for (const lead of leads) {
+    if (lead.anuncio === undefined) {
+      if (chegou(lead)) pendentes++;
+      continue;
+    }
+    const anuncio = lead.anuncio ? anuncios[lead.anuncio] : undefined;
+    if (!anuncio) {
+      if (chegou(lead)) semAnuncio++;
+      continue;
+    }
+    if (!mapa.has(anuncio.url)) {
+      mapa.set(anuncio.url, {
+        anuncio,
+        leads: 0,
+        qualificados: 0,
+        agendados: 0,
+        comparecidos: 0,
+        convertidos: 0,
+        taxaAgendamento: null,
+      });
+    }
+    const r = mapa.get(anuncio.url)!;
+    if (chegou(lead)) r.leads++;
+    if (lead.qualificado) r.qualificados++;
+    if (lead.status === "Agendado") r.agendados++;
+    if (lead.compareceu === "Sim") r.comparecidos++;
+    if (lead.converteu === "Sim") r.convertidos++;
+  }
+  const criativos = Array.from(mapa.values())
+    .map((r) => ({ ...r, taxaAgendamento: r.leads ? (r.agendados / r.leads) * 100 : null }))
+    .sort((a, b) => b.convertidos - a.convertidos || b.comparecidos - a.comparecidos || b.agendados - a.agendados || b.leads - a.leads);
+  return { criativos, semAnuncio, pendentes };
 }
 
 // ---------- Faixa de datas disponível ----------

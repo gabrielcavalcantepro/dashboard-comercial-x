@@ -2,19 +2,21 @@ import { NextResponse } from "next/server";
 import { buscarCliente } from "@/lib/db";
 import { buscarLeadsDoFunil } from "@/lib/pipefacil";
 import { buscarValoresPlanilha, parseLinhas, validarCabecalho } from "@/lib/sheets";
-import type { Cliente, Lead } from "@/lib/types";
+import type { AnuncioOrigem, Cliente, Lead } from "@/lib/types";
 
 const TTL_MS = 15_000;
 
 interface CacheEntry {
   timestamp: number;
   leads: Lead[];
+  anuncios: Record<string, AnuncioOrigem>;
   statusNaoReconhecido: number;
   avisosColunas: string[];
 }
 
 declare global {
   var __leadsCache: Map<string, CacheEntry> | undefined;
+  var __leadsEmAndamento: Map<string, Promise<Carga>> | undefined;
 }
 
 function getCache(): Map<string, CacheEntry> {
@@ -23,7 +25,13 @@ function getCache(): Map<string, CacheEntry> {
 }
 
 type Carga =
-  | { ok: true; leads: Lead[]; statusNaoReconhecido: number; avisosColunas: string[] }
+  | {
+      ok: true;
+      leads: Lead[];
+      anuncios: Record<string, AnuncioOrigem>;
+      statusNaoReconhecido: number;
+      avisosColunas: string[];
+    }
   | { ok: false; mensagem: string };
 
 async function carregarDaPlanilha(sheetId: string, abaNome: string): Promise<Carga> {
@@ -41,7 +49,7 @@ async function carregarDaPlanilha(sheetId: string, abaNome: string): Promise<Car
       ]
     : [];
 
-  return { ok: true, leads, statusNaoReconhecido, avisosColunas };
+  return { ok: true, leads, anuncios: {}, statusNaoReconhecido, avisosColunas };
 }
 
 async function carregarLeads(cliente: Cliente): Promise<Carga> {
@@ -58,12 +66,19 @@ async function carregarLeads(cliente: Cliente): Promise<Carga> {
   ]);
   if (!crm.ok) return { ok: false, mensagem: crm.mensagem };
   if (!planilha) {
-    return { ok: true, leads: crm.leads, statusNaoReconhecido: 0, avisosColunas: crm.avisos };
+    return {
+      ok: true,
+      leads: crm.leads,
+      anuncios: crm.anuncios,
+      statusNaoReconhecido: 0,
+      avisosColunas: crm.avisos,
+    };
   }
   if (!planilha.ok) {
     return {
       ok: true,
       leads: crm.leads,
+      anuncios: crm.anuncios,
       statusNaoReconhecido: 0,
       avisosColunas: [
         ...crm.avisos,
@@ -78,9 +93,23 @@ async function carregarLeads(cliente: Cliente): Promise<Carga> {
   return {
     ok: true,
     leads: [...planilha.leads, ...crm.leads],
+    anuncios: crm.anuncios,
     statusNaoReconhecido: planilha.statusNaoReconhecido,
     avisosColunas: [...planilha.avisosColunas, ...crm.avisos],
   };
+}
+
+// A lista de clientes e o painel pedem o mesmo cliente ao mesmo tempo; uma
+// leitura em andamento é compartilhada para não repetir as chamadas ao CRM
+// (e o enriquecimento dos leads, que custa uma chamada por lead).
+function carregarSemRepetir(cliente: Cliente): Promise<Carga> {
+  if (!global.__leadsEmAndamento) global.__leadsEmAndamento = new Map();
+  const emAndamento = global.__leadsEmAndamento;
+  const existente = emAndamento.get(cliente.id);
+  if (existente) return existente;
+  const promessa = carregarLeads(cliente).finally(() => emAndamento.delete(cliente.id));
+  emAndamento.set(cliente.id, promessa);
+  return promessa;
 }
 
 export async function GET(
@@ -98,13 +127,14 @@ export async function GET(
   if (cacheado && Date.now() - cacheado.timestamp < TTL_MS) {
     return NextResponse.json({
       leads: cacheado.leads,
+      anuncios: cacheado.anuncios,
       statusNaoReconhecido: cacheado.statusNaoReconhecido,
       avisosColunas: cacheado.avisosColunas,
       atualizadoEm: cacheado.timestamp,
     });
   }
 
-  const resultado = await carregarLeads(cliente);
+  const resultado = await carregarSemRepetir(cliente);
   if (!resultado.ok) {
     if (cacheado) {
       return NextResponse.json({
@@ -121,6 +151,7 @@ export async function GET(
   const entry: CacheEntry = {
     timestamp: Date.now(),
     leads: resultado.leads,
+    anuncios: resultado.anuncios,
     statusNaoReconhecido: resultado.statusNaoReconhecido,
     avisosColunas: resultado.avisosColunas,
   };
@@ -128,6 +159,7 @@ export async function GET(
 
   return NextResponse.json({
     leads: entry.leads,
+    anuncios: entry.anuncios,
     statusNaoReconhecido: entry.statusNaoReconhecido,
     avisosColunas: entry.avisosColunas,
     atualizadoEm: entry.timestamp,

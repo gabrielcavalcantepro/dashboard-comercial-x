@@ -299,6 +299,7 @@ export function parseLinhas(
 
     leads.push({
       linha: idx + 2,
+      fonteDados: "planilha",
       dataContato: parseDataBR(dataContatoRaw),
       dataContatoRaw,
       // Campo vazio fica como string vazia (em vez de um rótulo tipo "Não

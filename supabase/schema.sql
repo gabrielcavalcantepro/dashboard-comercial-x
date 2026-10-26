@@ -18,6 +18,19 @@ create table if not exists clientes (
 alter table clientes add column if not exists pipefacil_pipeline_seq integer;
 alter table clientes alter column sheet_id drop not null;
 
+-- Histórico de etapas e anúncio de origem de cada lead do PipeFácil, lidos
+-- uma vez por lead (uma chamada ao CRM cada) e guardados aqui. seq é o
+-- número do negócio no workspace do PipeFácil.
+create table if not exists pipefacil_negocios (
+  seq integer primary key,
+  etapa_alterada_em timestamptz,
+  historico jsonb,
+  anuncio jsonb,
+  anuncio_lido boolean not null default false,
+  atualizado_em timestamptz not null default now()
+);
+alter table pipefacil_negocios disable row level security;
+
 -- O app acessa essa tabela só pelo servidor (Server Components / Route
 -- Handlers), usando a service role key, que ignora RLS. Row Level Security
 -- fica desligado de propósito: não há acesso vindo do navegador.

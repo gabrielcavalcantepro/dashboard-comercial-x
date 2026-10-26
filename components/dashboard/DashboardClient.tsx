@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ClientePublico } from "@/lib/types";
 import {
   FILTROS_VAZIOS,
+  computeCriativos,
   computeDesistenciaPosQualificacao,
   computeEvolucao,
   computeFunil,
@@ -43,6 +44,7 @@ import { ReportModal } from "./report/ReportModal";
 import { ReportDocument } from "./report/ReportDocument";
 import { gerarRelatorioPdf } from "./report/generateReportPdf";
 import { TrafegoPagoSection } from "./ads/TrafegoPagoSection";
+import { CriativosResultadoSection } from "./criativos/CriativosResultadoSection";
 import { PresentationButton } from "./presentation/PresentationButton";
 import { PresentationView } from "./presentation/PresentationView";
 
@@ -53,6 +55,7 @@ interface DashboardClientProps {
 export function DashboardClient({ cliente }: DashboardClientProps) {
   const {
     leads,
+    anuncios,
     carregandoInicial,
     erroInicial,
     avisoDiscreto,
@@ -148,6 +151,17 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
     [leadsFiltrados],
   );
   const motivos = useMemo(() => computeMotivosDesistencia(leadsFiltrados), [leadsFiltrados]);
+  // Só leads do CRM têm anúncio de origem; os da planilha ficam de fora para
+  // não aparecerem como "sem anúncio".
+  const temLeadsDoCrm = useMemo(() => leads.some((l) => l.fonteDados === "pipefacil"), [leads]);
+  const criativos = useMemo(
+    () =>
+      computeCriativos(
+        leadsFiltrados.filter((l) => l.fonteDados === "pipefacil"),
+        anuncios,
+      ),
+    [leadsFiltrados, anuncios],
+  );
 
   const [apresentacaoAtiva, setApresentacaoAtiva] = useState(false);
 
@@ -352,7 +366,7 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
         <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-12">
           <ChartPanel
             title="Funil de conversão"
-            tooltip="Mostra quantos leads avançam de Total para Qualificados, Agendados, Comparecidos e Convertidos, revelando em qual etapa o funil mais perde gente. As duas últimas etapas só aparecem se o funil do PipeFácil tiver essas etapas ou se a planilha tiver as colunas 'Compareceu?' e 'Converteu?'."
+            tooltip="Mostra quantos leads avançam de Total para Qualificados, Agendados, Comparecidos e Convertidos, revelando em qual etapa o funil mais perde gente. Com um período selecionado, Total conta os leads que chegaram nele e cada etapa conta quem a atingiu nele, mesmo tendo chegado antes. As duas últimas etapas só aparecem se o funil do PipeFácil tiver essas etapas ou se a planilha tiver as colunas 'Compareceu?' e 'Converteu?'."
             className="lg:col-span-4"
           >
             <FunnelChart etapas={funil} />
@@ -491,6 +505,8 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
           </ChartPanel>
         </div>
       </section>
+
+      {temLeadsDoCrm && <CriativosResultadoSection resumo={criativos} />}
 
       <TrafegoPagoSection cliente={cliente} periodo={periodoAds} />
 
