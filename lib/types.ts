@@ -29,7 +29,7 @@ export interface Lead {
   // quando ele entrou no recorte por um evento (ex.: agendou no período)
   // mas chegou antes — não conta como lead novo do período.
   chegou?: boolean;
-  // Link do post do anúncio que trouxe o lead (chave de AnuncioOrigem).
+  // Criativo que trouxe o lead (chave de Criativo, ver chaveDoCriativo).
   // undefined = origem ainda não lida; null = lida, sem anúncio.
   anuncio?: string | null;
 }
@@ -107,4 +107,16 @@ export interface NovoClienteInput {
   pipefacilPipelineSeq?: number | null;
   metaAdAccountId?: string;
   metaAccessToken?: string;
+}
+
+// Criativo exibido no painel: todos os posts (Instagram, Facebook, um por
+// anúncio) que usam o mesmo vídeo ou imagem.
+export interface Criativo {
+  chave: string;
+  url: string; // post que mais trouxe leads
+  posts: number;
+  titulo: string;
+  texto: string;
+  miniatura: string | null;
+  tipoMidia: string | null;
 }

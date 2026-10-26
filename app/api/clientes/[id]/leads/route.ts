@@ -2,14 +2,14 @@ import { NextResponse } from "next/server";
 import { buscarCliente } from "@/lib/db";
 import { buscarLeadsDoFunil } from "@/lib/pipefacil";
 import { buscarValoresPlanilha, parseLinhas, validarCabecalho } from "@/lib/sheets";
-import type { AnuncioOrigem, Cliente, Lead } from "@/lib/types";
+import type { Criativo, Cliente, Lead } from "@/lib/types";
 
 const TTL_MS = 15_000;
 
 interface CacheEntry {
   timestamp: number;
   leads: Lead[];
-  anuncios: Record<string, AnuncioOrigem>;
+  anuncios: Record<string, Criativo>;
   statusNaoReconhecido: number;
   avisosColunas: string[];
 }
@@ -28,7 +28,7 @@ type Carga =
   | {
       ok: true;
       leads: Lead[];
-      anuncios: Record<string, AnuncioOrigem>;
+      anuncios: Record<string, Criativo>;
       statusNaoReconhecido: number;
       avisosColunas: string[];
     }

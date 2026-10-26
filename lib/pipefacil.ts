@@ -5,8 +5,14 @@
 // requisição. Na API um lead se chama "deal"; é o mesmo negócio.
 
 import { normalizarRotulo } from "./sheets";
-import { carregarEnriquecimentos, salvarEnriquecimentos } from "./db";
-import type { AnuncioOrigem, Lead, RespostaSimNao } from "./types";
+import {
+  arquivarMiniatura,
+  carregarEnriquecimentos,
+  listarMiniaturasArquivadas,
+  salvarEnriquecimentos,
+  urlMiniaturaArquivada,
+} from "./db";
+import type { AnuncioOrigem, Criativo, Lead, RespostaSimNao } from "./types";
 
 const BASE_URL = "https://pipefacil-server.matchsales.com.br";
 const LIMITE_PAGINA = 200; // máximo aceito por GET /api/v1/deals
@@ -486,8 +492,92 @@ export function converterNegocios(
           ? formatoISO.format(new Date(negocio.closedAt ?? negocio.stageChangedAt))
           : null,
       },
-      anuncio: enriquecimento?.anuncioLido ? (enriquecimento.anuncio?.url ?? null) : undefined,
+      anuncio: enriquecimento?.anuncioLido
+        ? enriquecimento.anuncio
+          ? chaveDoCriativo(enriquecimento.anuncio)
+          : null
+        : undefined,
     };
+  });
+}
+
+// ---------- Criativos: agrupamento e miniaturas ----------
+
+// O mesmo vídeo ou imagem vira um post diferente em cada anúncio e
+// posicionamento (Instagram, Facebook via fb.me), mas a miniatura que o Meta
+// manda aponta sempre para o mesmo arquivo. O nome desse arquivo identifica
+// o criativo; sem miniatura, cada post fica sozinho.
+export function chaveDoCriativo(anuncio: AnuncioOrigem): string {
+  const arquivo = anuncio.miniatura?.split("?")[0].split("/").pop();
+  const m = arquivo?.match(/^(.+?)(?:_n)?\.(?:jpe?g|png|webp)$/i);
+  return m ? m[1] : anuncio.url;
+}
+
+// Agrupa os anúncios de origem dos leads em criativos. O link do post
+// exibido é o que mais trouxe leads; a miniatura é a cópia arquivada, ou o
+// link do Meta mais recente (os mais antigos já expiraram).
+export function agruparCriativos(
+  negocios: PipeFacilNegocio[],
+  enriquecimentos: Map<number, EnriquecimentoNegocio>,
+  arquivadas: Set<string>,
+): Record<string, Criativo> {
+  const grupos = new Map<
+    string,
+    { anuncio: AnuncioOrigem; maisRecente: string; posts: Map<string, number> }
+  >();
+  for (const n of negocios) {
+    const anuncio = enriquecimentos.get(n.seq)?.anuncio;
+    if (!anuncio) continue;
+    const chave = chaveDoCriativo(anuncio);
+    const g = grupos.get(chave);
+    if (!g) {
+      grupos.set(chave, { anuncio, maisRecente: n.createdAt, posts: new Map([[anuncio.url, 1]]) });
+      continue;
+    }
+    g.posts.set(anuncio.url, (g.posts.get(anuncio.url) ?? 0) + 1);
+    if (n.createdAt > g.maisRecente && anuncio.miniatura) {
+      g.anuncio = anuncio;
+      g.maisRecente = n.createdAt;
+    }
+  }
+
+  const criativos: Record<string, Criativo> = {};
+  for (const [chave, g] of grupos) {
+    const postPrincipal = [...g.posts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    criativos[chave] = {
+      chave,
+      url: postPrincipal,
+      posts: g.posts.size,
+      titulo: g.anuncio.titulo,
+      texto: g.anuncio.texto,
+      tipoMidia: g.anuncio.tipoMidia,
+      miniatura: arquivadas.has(chave) ? urlMiniaturaArquivada(chave) : g.anuncio.miniatura,
+    };
+  }
+  return criativos;
+}
+
+// Cada miniatura sem cópia é tentada uma vez por processo: link expirado do
+// Meta não volta a funcionar, e não vale repetir a tentativa a cada 25 s.
+declare global {
+  var __miniaturasTentadas: Set<string> | undefined;
+}
+
+async function arquivarMiniaturasNovas(
+  criativos: Record<string, Criativo>,
+  arquivadas: Set<string>,
+): Promise<void> {
+  if (!global.__miniaturasTentadas) global.__miniaturasTentadas = new Set();
+  const tentadas = global.__miniaturasTentadas;
+  const pendentes = Object.values(criativos).filter(
+    (c) => c.miniatura && !arquivadas.has(c.chave) && !tentadas.has(c.miniatura),
+  );
+  await emParalelo(pendentes, async (c) => {
+    tentadas.add(c.miniatura!);
+    if (await arquivarMiniatura(c.chave, c.miniatura!)) {
+      arquivadas.add(c.chave);
+      c.miniatura = urlMiniaturaArquivada(c.chave);
+    }
   });
 }
 
@@ -588,7 +678,7 @@ export async function enriquecerNegocios(
 }
 
 export type LeadsDoFunil =
-  | { ok: true; leads: Lead[]; anuncios: Record<string, AnuncioOrigem>; avisos: string[] }
+  | { ok: true; leads: Lead[]; anuncios: Record<string, Criativo>; avisos: string[] }
   | PipeFacilErro;
 
 // Tudo que o painel precisa de um funil, já no formato de Lead.
@@ -607,10 +697,9 @@ export async function buscarLeadsDoFunil(pipelineSeq: number): Promise<LeadsDoFu
   const leads = converterNegocios(funil.dados, negocios.dados, campos.dados, enriquecimentos);
 
   // Os dados do anúncio vão uma vez por criativo, não repetidos em cada lead.
-  const anuncios: Record<string, AnuncioOrigem> = {};
-  for (const e of enriquecimentos.values()) {
-    if (e.anuncio) anuncios[e.anuncio.url] = e.anuncio;
-  }
+  const arquivadas = await listarMiniaturasArquivadas();
+  const anuncios = agruparCriativos(negocios.dados, enriquecimentos, arquivadas);
+  await arquivarMiniaturasNovas(anuncios, arquivadas);
 
   const avisos: string[] = [];
   if (!campos.dados.some((c) => c.slug === "procedimento")) {

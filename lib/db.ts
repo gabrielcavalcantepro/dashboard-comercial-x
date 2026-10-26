@@ -187,3 +187,63 @@ export async function salvarEnriquecimentos(itens: EnriquecimentoNegocio[]): Pro
     );
   if (error) console.warn("Não foi possível salvar em pipefacil_negocios:", error.message);
 }
+
+// ---------- Miniaturas dos criativos (Supabase Storage) ----------
+//
+// O link de imagem que o Meta manda na mensagem do anúncio expira em poucos
+// dias. Uma cópia é guardada num bucket público na primeira vez que o
+// criativo aparece, enquanto o link ainda funciona.
+
+const BUCKET_MINIATURAS = "miniaturas-criativos";
+
+declare global {
+  var __miniaturasArquivadas: Promise<Set<string>> | undefined;
+}
+
+export function urlMiniaturaArquivada(chave: string): string {
+  return getClient().storage.from(BUCKET_MINIATURAS).getPublicUrl(`${chave}.jpg`).data.publicUrl;
+}
+
+// Lista uma vez por processo; depois o conjunto é atualizado a cada cópia.
+export function listarMiniaturasArquivadas(): Promise<Set<string>> {
+  if (!global.__miniaturasArquivadas) {
+    global.__miniaturasArquivadas = (async () => {
+      const chaves = new Set<string>();
+      for (let offset = 0; ; offset += 1000) {
+        const { data, error } = await getClient()
+          .storage.from(BUCKET_MINIATURAS)
+          .list("", { limit: 1000, offset });
+        if (error) {
+          console.warn("Bucket de miniaturas indisponível:", error.message);
+          break;
+        }
+        for (const f of data) chaves.add(f.name.replace(/\.jpg$/, ""));
+        if (data.length < 1000) break;
+      }
+      return chaves;
+    })();
+  }
+  return global.__miniaturasArquivadas;
+}
+
+export async function arquivarMiniatura(chave: string, url: string): Promise<boolean> {
+  let res: Response;
+  try {
+    res = await fetch(url, { cache: "no-store" });
+  } catch {
+    return false;
+  }
+  if (!res.ok) return false;
+  const { error } = await getClient()
+    .storage.from(BUCKET_MINIATURAS)
+    .upload(`${chave}.jpg`, await res.arrayBuffer(), {
+      contentType: res.headers.get("content-type") ?? "image/jpeg",
+      upsert: true,
+      cacheControl: "31536000",
+    });
+  if (error) {
+    console.warn("Não foi possível arquivar a miniatura:", error.message);
+    return false;
+  }
+  return true;
+}

@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { AnuncioOrigem, Lead } from "@/lib/types";
+import type { Criativo, Lead } from "@/lib/types";
 
 interface LeadsResponse {
   leads: Lead[];
-  anuncios?: Record<string, AnuncioOrigem>;
+  anuncios?: Record<string, Criativo>;
   atualizadoEm: number;
   avisosColunas: string[];
   statusNaoReconhecido: number;
@@ -15,7 +15,7 @@ interface LeadsResponse {
 
 export interface UseLiveLeadsResult {
   leads: Lead[];
-  anuncios: Record<string, AnuncioOrigem>;
+  anuncios: Record<string, Criativo>;
   carregandoInicial: boolean;
   erroInicial: string | null;
   avisoDiscreto: string | null;
@@ -31,7 +31,7 @@ const INTERVALO_MS = 25_000;
 
 export function useLiveLeads(clienteId: string): UseLiveLeadsResult {
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [anuncios, setAnuncios] = useState<Record<string, AnuncioOrigem>>({});
+  const [anuncios, setAnuncios] = useState<Record<string, Criativo>>({});
   const [carregandoInicial, setCarregandoInicial] = useState(true);
   const [erroInicial, setErroInicial] = useState<string | null>(null);
   const [avisoDiscreto, setAvisoDiscreto] = useState<string | null>(null);
