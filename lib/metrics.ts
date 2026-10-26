@@ -512,32 +512,54 @@ export function computeMotivosDesistencia(leads: Lead[]): MotivoDesistenciaItem[
 
 // ---------- Criativos (anúncio de origem) ----------
 
-export interface ResultadoCriativo {
-  criativo: Criativo;
+export interface FunilOrigem {
   leads: number;
   qualificados: number;
   agendados: number;
   comparecidos: number;
   convertidos: number;
   taxaAgendamento: number | null; // agendados / leads
+}
+
+export interface ResultadoCriativo extends FunilOrigem {
+  criativo: Criativo;
   primeiroLead: string | null;
   ultimoLead: string | null;
 }
 
 export interface CriativosResumo {
   criativos: ResultadoCriativo[];
-  semAnuncio: number;
+  // Leads sem anúncio de origem, com o mesmo funil — somado aos criativos,
+  // fecha com o funil de conversão.
+  semAnuncio: FunilOrigem;
   pendentes: number; // leads cuja origem ainda não foi lida no CRM
 }
 
-// Agrupa o funil pelo criativo que trouxe cada lead, com as mesmas regras do
-// funil de conversão (um lead que agendou e depois desistiu sai de Agendados).
+function funilVazio(): FunilOrigem {
+  return { leads: 0, qualificados: 0, agendados: 0, comparecidos: 0, convertidos: 0, taxaAgendamento: null };
+}
+
+// Mesmas regras do funil de conversão (um lead que agendou e depois
+// desistiu sai de Agendados).
+function somarNoFunil(f: FunilOrigem, lead: Lead): void {
+  if (chegou(lead)) f.leads++;
+  if (lead.qualificado) f.qualificados++;
+  if (lead.status === "Agendado") f.agendados++;
+  if (lead.compareceu === "Sim") f.comparecidos++;
+  if (lead.converteu === "Sim") f.convertidos++;
+}
+
+function comTaxa<T extends FunilOrigem>(f: T): T {
+  return { ...f, taxaAgendamento: f.leads ? (f.agendados / f.leads) * 100 : null };
+}
+
+// Agrupa o funil pelo criativo que trouxe cada lead.
 export function computeCriativos(
   leads: Lead[],
   criativos: Record<string, Criativo>,
 ): CriativosResumo {
   const mapa = new Map<string, ResultadoCriativo>();
-  let semAnuncio = 0;
+  const semAnuncio = funilVazio();
   let pendentes = 0;
   for (const lead of leads) {
     if (lead.anuncio === undefined) {
@@ -546,36 +568,22 @@ export function computeCriativos(
     }
     const criativo = lead.anuncio ? criativos[lead.anuncio] : undefined;
     if (!criativo) {
-      if (chegou(lead)) semAnuncio++;
+      somarNoFunil(semAnuncio, lead);
       continue;
     }
     if (!mapa.has(criativo.chave)) {
-      mapa.set(criativo.chave, {
-        criativo,
-        leads: 0,
-        qualificados: 0,
-        agendados: 0,
-        comparecidos: 0,
-        convertidos: 0,
-        taxaAgendamento: null,
-        primeiroLead: null,
-        ultimoLead: null,
-      });
+      mapa.set(criativo.chave, { ...funilVazio(), criativo, primeiroLead: null, ultimoLead: null });
     }
     const r = mapa.get(criativo.chave)!;
-    if (chegou(lead)) {
-      r.leads++;
-      const d = lead.dataContato;
-      if (d && (!r.primeiroLead || d < r.primeiroLead)) r.primeiroLead = d;
-      if (d && (!r.ultimoLead || d > r.ultimoLead)) r.ultimoLead = d;
+    somarNoFunil(r, lead);
+    const d = lead.dataContato;
+    if (chegou(lead) && d) {
+      if (!r.primeiroLead || d < r.primeiroLead) r.primeiroLead = d;
+      if (!r.ultimoLead || d > r.ultimoLead) r.ultimoLead = d;
     }
-    if (lead.qualificado) r.qualificados++;
-    if (lead.status === "Agendado") r.agendados++;
-    if (lead.compareceu === "Sim") r.comparecidos++;
-    if (lead.converteu === "Sim") r.convertidos++;
   }
   const lista = Array.from(mapa.values())
-    .map((r) => ({ ...r, taxaAgendamento: r.leads ? (r.agendados / r.leads) * 100 : null }))
+    .map(comTaxa)
     .sort(
       (a, b) =>
         b.convertidos - a.convertidos ||
@@ -583,7 +591,7 @@ export function computeCriativos(
         b.agendados - a.agendados ||
         b.leads - a.leads,
     );
-  return { criativos: lista, semAnuncio, pendentes };
+  return { criativos: lista, semAnuncio: comTaxa(semAnuncio), pendentes };
 }
 
 // ---------- Faixa de datas disponível ----------
