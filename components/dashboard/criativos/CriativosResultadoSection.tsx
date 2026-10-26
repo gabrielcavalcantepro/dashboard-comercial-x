@@ -15,13 +15,15 @@ const VISIVEIS_INICIAL = 8;
 
 function Miniatura({ resultado }: { resultado: ResultadoCriativo }) {
   // Link do Meta que expirou antes de ser arquivado: mostra o tipo de mídia.
-  const [quebrou, setQuebrou] = useState(false);
+  // Guarda qual endereço falhou (e não só "falhou") para tentar de novo
+  // quando a atualização do painel trouxer a cópia arquivada.
+  const [falhou, setFalhou] = useState<string | null>(null);
   const { miniatura, tipoMidia } = resultado.criativo;
   return (
     <span className="block h-[56px] w-[44px] shrink-0 overflow-hidden rounded-[var(--radius-sm)] bg-[var(--color-surface-sunken)]">
-      {miniatura && !quebrou ? (
+      {miniatura && miniatura !== falhou ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={miniatura} alt="" className="h-full w-full object-cover" onError={() => setQuebrou(true)} />
+        <img src={miniatura} alt="" className="h-full w-full object-cover" onError={() => setFalhou(miniatura)} />
       ) : (
         <span className="flex h-full w-full items-center justify-center text-[10px] text-[var(--color-text-faint)]">
           {tipoMidia === "video" ? "Vídeo" : "Imagem"}
