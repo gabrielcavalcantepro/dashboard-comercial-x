@@ -32,6 +32,13 @@ export interface Lead {
   // Criativo que trouxe o lead (chave de Criativo, ver chaveDoCriativo).
   // undefined = origem ainda não lida; null = lida, sem anúncio.
   anuncio?: string | null;
+  // Para lead do CRM sem anúncio de origem: o que a primeira mensagem
+  // indica (ver classificarSemAnuncio). "mensagem" só vem quando é uma frase
+  // pronta repetida por vários leads — nunca uma mensagem pessoal.
+  semAnuncio?: {
+    tipo: "anuncio_sem_clique" | "mensagem_indisponivel" | "mensagem_pronta" | "sem_rastro";
+    mensagem?: string;
+  };
 }
 
 export interface DatasMarcos {
@@ -50,6 +57,8 @@ export interface AnuncioOrigem {
   texto: string;
   miniatura: string | null;
   tipoMidia: string | null;
+  // ID do post do Facebook por trás do link fb.me (null se cifrado).
+  postId?: string | null;
 }
 
 export type CampoEssencial =
@@ -121,5 +130,7 @@ export interface Criativo {
   tipoMidia: string | null;
   // Da conta de anúncios do Meta, quando configurada; null = não se sabe.
   ativo: boolean | null;
-  variacoes: number | null; // imagens diferentes com o mesmo texto
+  // Anúncio de imagem que não deu para identificar: quantas imagens da
+  // conta têm o mesmo texto (o lead veio de uma delas).
+  variacoes: number | null;
 }

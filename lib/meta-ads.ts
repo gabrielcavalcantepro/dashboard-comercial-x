@@ -311,29 +311,39 @@ export async function buscarDadosAds(
 // ---------- Criativos da conta (para o "Resultado por criativo") ----------
 //
 // Índice de todos os anúncios da conta — inclusive pausados e arquivados,
-// que ainda têm leads no CRM — pela mesma chave usada nos anúncios de origem
-// dos leads (ver criativo-chave.ts). Serve para dar miniatura atual aos
-// criativos cujo link de imagem na mensagem do WhatsApp expirou ou nunca
-// existiu (anúncio de imagem), e para dizer se o criativo está no ar.
+// que ainda têm leads no CRM. Liga cada anúncio de origem dos leads ao
+// criativo (vídeo ou imagem) da conta, dá a ele a miniatura atual e diz se
+// está no ar.
 
 export interface CriativoNaConta {
   ativo: boolean;
   miniatura: string | null;
-  variacoes: number; // anúncios de imagem diferentes com o mesmo texto
-  // Para listar o criativo no ar que ainda não trouxe nenhum lead.
   texto: string;
   url: string | null; // post no Instagram
   tipoMidia: "video" | "image";
 }
 
+export interface IndiceCriativos {
+  criativos: Map<string, CriativoNaConta>;
+  porShortcode: Map<string, string>; // post do Instagram -> chave
+  porVideoId: Map<string, string>; // post de vídeo no Facebook -> chave
+  // Post de imagem no Facebook: o fb.me aponta para um ID um pouco menor
+  // que o do post do anúncio (não há como ler os posts da página com a
+  // permissão de anúncios). Ordenado pelo ID.
+  postsDeImagem: { id: number; chave: string }[];
+  imagensPorTexto: Map<string, string[]>; // chaveDeTexto -> chaves de imagem
+}
+
 interface AnuncioIndiceRaw {
   effective_status: string;
   creative?: {
+    id?: string;
     body?: string;
     thumbnail_url?: string;
     instagram_permalink_url?: string;
     image_hash?: string;
     video_id?: string;
+    effective_object_story_id?: string;
     object_story_spec?: {
       video_data?: { video_id?: string; message?: string };
       link_data?: { message?: string; image_hash?: string };
@@ -357,15 +367,10 @@ const TODOS_OS_STATUS = [
 const VALIDADE_INDICE_MS = 10 * 60_000;
 
 declare global {
-  var __indiceCriativosMeta:
-    | Map<string, { em: number; indice: Promise<Map<string, CriativoNaConta>> }>
-    | undefined;
+  var __indiceCriativosMeta: Map<string, { em: number; indice: Promise<IndiceCriativos> }> | undefined;
 }
 
-export function buscarIndiceCriativos(
-  adAccountId: string,
-  token: string,
-): Promise<Map<string, CriativoNaConta>> {
+export function buscarIndiceCriativos(adAccountId: string, token: string): Promise<IndiceCriativos> {
   if (!global.__indiceCriativosMeta) global.__indiceCriativosMeta = new Map();
   const cache = global.__indiceCriativosMeta;
   const conta = normalizarAdAccountId(adAccountId);
@@ -377,10 +382,14 @@ export function buscarIndiceCriativos(
   return indice;
 }
 
-async function montarIndice(conta: string, token: string): Promise<Map<string, CriativoNaConta>> {
+export function shortcodeInstagram(url: string | null | undefined): string | null {
+  return url?.match(/instagram\.com\/(?:p|reel)\/([^/?#]+)/)?.[1] ?? null;
+}
+
+async function montarIndice(conta: string, token: string): Promise<IndiceCriativos> {
   const fields =
-    "effective_status,creative{body,thumbnail_url,instagram_permalink_url,image_hash,video_id," +
-    "object_story_spec{video_data{video_id,message},link_data{message,image_hash}}}";
+    "effective_status,creative{id,body,thumbnail_url,instagram_permalink_url,image_hash,video_id," +
+    "effective_object_story_id,object_story_spec{video_data{video_id,message},link_data{message,image_hash}}}";
   const filtering = JSON.stringify([
     { field: "effective_status", operator: "IN", value: TODOS_OS_STATUS },
   ]);
@@ -390,7 +399,13 @@ async function montarIndice(conta: string, token: string): Promise<Map<string, C
     `&filtering=${encodeURIComponent(filtering)}&thumbnail_width=400&thumbnail_height=400` +
     `&limit=50&access_token=${token}`;
 
-  const indice = new Map<string, CriativoNaConta & { imagens: Set<string> }>();
+  const indice: IndiceCriativos = {
+    criativos: new Map(),
+    porShortcode: new Map(),
+    porVideoId: new Map(),
+    postsDeImagem: [],
+    imagensPorTexto: new Map(),
+  };
   for (let pagina = 0; url && pagina < 30; pagina++) {
     const res: { ok: true; data: { data: AnuncioIndiceRaw[]; paging?: { next?: string } } } | MetaAdsError =
       await chamarGraphApi(url);
@@ -400,32 +415,73 @@ async function montarIndice(conta: string, token: string): Promise<Map<string, C
     }
     for (const ad of res.data.data) {
       const c = ad.creative ?? {};
-      const ehVideo = Boolean(c.video_id || c.object_story_spec?.video_data);
-      const chave = ehVideo
+      const videoId = c.video_id ?? c.object_story_spec?.video_data?.video_id;
+      const imagem = c.image_hash ?? c.object_story_spec?.link_data?.image_hash;
+      const chave = videoId
         ? chaveDeMiniatura(c.thumbnail_url)
-        : chaveDeTexto(c.body ?? c.object_story_spec?.link_data?.message);
+        : imagem
+          ? `img_${imagem}`
+          : c.id
+            ? `cr_${c.id}`
+            : null;
       if (!chave) continue;
+
       const ativo = ad.effective_status === "ACTIVE";
-      const texto = c.body ?? c.object_story_spec?.video_data?.message ?? c.object_story_spec?.link_data?.message ?? "";
-      const item = indice.get(chave) ?? {
+      const texto =
+        c.body ?? c.object_story_spec?.video_data?.message ?? c.object_story_spec?.link_data?.message ?? "";
+      const item = indice.criativos.get(chave) ?? {
         ativo: false,
         miniatura: null,
-        variacoes: 0,
-        imagens: new Set<string>(),
         texto,
         url: null,
-        tipoMidia: ehVideo ? ("video" as const) : ("image" as const),
+        tipoMidia: videoId ? ("video" as const) : ("image" as const),
       };
-      if (!item.texto) item.texto = texto;
-      if (c.instagram_permalink_url && (!item.url || ativo)) item.url = c.instagram_permalink_url;
-      // Prefere a miniatura de um anúncio que está no ar.
+      // Prefere os dados de um anúncio que está no ar.
       if (c.thumbnail_url && (!item.miniatura || (ativo && !item.ativo))) item.miniatura = c.thumbnail_url;
+      if (c.instagram_permalink_url && (!item.url || ativo)) item.url = c.instagram_permalink_url;
+      if (!item.texto) item.texto = texto;
       item.ativo ||= ativo;
-      const imagem = c.image_hash ?? c.object_story_spec?.link_data?.image_hash;
-      if (!ehVideo && imagem) item.imagens.add(imagem);
-      indice.set(chave, item);
+      indice.criativos.set(chave, item);
+
+      const shortcode = shortcodeInstagram(c.instagram_permalink_url);
+      if (shortcode) indice.porShortcode.set(shortcode, chave);
+      if (videoId) indice.porVideoId.set(videoId, chave);
+      const postId = c.effective_object_story_id?.split("_")[1];
+      if (!videoId && postId) indice.postsDeImagem.push({ id: Number(postId), chave });
+      const chaveTexto = chaveDeTexto(texto);
+      if (!videoId && chaveTexto) {
+        const lista = indice.imagensPorTexto.get(chaveTexto) ?? [];
+        if (!lista.includes(chave)) lista.push(chave);
+        indice.imagensPorTexto.set(chaveTexto, lista);
+      }
     }
     url = res.data.paging?.next;
   }
-  return new Map([...indice].map(([k, { imagens, ...v }]) => [k, { ...v, variacoes: imagens.size }]));
+  indice.postsDeImagem.sort((a, b) => a.id - b.id);
+  return indice;
+}
+
+// Maior distância observada entre o ID do fb.me e o do post do anúncio de
+// imagem correspondente ficou na casa de alguns milhões; acima disso não é
+// o mesmo anúncio.
+const DISTANCIA_MAXIMA_POST_IMAGEM = 20_000_000;
+
+// Criativo da conta que originou o anúncio, ou null quando não dá para saber
+// (ex.: imagens com o mesmo texto e post do Facebook com ID cifrado).
+export function criativoDoAnuncio(
+  anuncio: { url: string; texto: string; postId?: string | null },
+  indice: IndiceCriativos,
+): string | null {
+  const shortcode = shortcodeInstagram(anuncio.url);
+  if (shortcode && indice.porShortcode.has(shortcode)) return indice.porShortcode.get(shortcode)!;
+  if (anuncio.postId) {
+    const doVideo = indice.porVideoId.get(anuncio.postId);
+    if (doVideo) return doVideo;
+    const id = Number(anuncio.postId);
+    const acima = indice.postsDeImagem.find((p) => p.id >= id);
+    if (acima && acima.id - id < DISTANCIA_MAXIMA_POST_IMAGEM) return acima.chave;
+  }
+  const chaveTexto = chaveDeTexto(anuncio.texto);
+  const imagens = chaveTexto ? indice.imagensPorTexto.get(chaveTexto) : undefined;
+  return imagens?.length === 1 ? imagens[0] : null;
 }

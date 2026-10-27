@@ -151,15 +151,12 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
     [leadsFiltrados],
   );
   const motivos = useMemo(() => computeMotivosDesistencia(leadsFiltrados), [leadsFiltrados]);
-  // Só leads do CRM têm anúncio de origem; os da planilha ficam de fora para
-  // não aparecerem como "sem anúncio".
+  // Só leads do CRM têm anúncio de origem; os da planilha entram numa linha
+  // própria, para a seção fechar com o funil do painel.
   const temLeadsDoCrm = useMemo(() => leads.some((l) => l.fonteDados === "pipefacil"), [leads]);
   const criativos = useMemo(
     () =>
-      computeCriativos(
-        leadsFiltrados.filter((l) => l.fonteDados === "pipefacil"),
-        anuncios,
-      ),
+      computeCriativos(leadsFiltrados, anuncios),
     [leadsFiltrados, anuncios],
   );
 

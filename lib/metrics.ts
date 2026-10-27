@@ -527,11 +527,31 @@ export interface ResultadoCriativo extends FunilOrigem {
   ultimoLead: string | null;
 }
 
+// Leads que chegaram sem um criativo identificado, separados pelo que se
+// sabe da origem (ver classificarSemAnuncio em pipefacil.ts).
+export type TipoSemCriativo =
+  | "imagem_nao_identificada"
+  | "anuncio_sem_clique"
+  | "mensagem_indisponivel"
+  | "mensagem_pronta"
+  | "sem_rastro"
+  | "planilha";
+
+export interface LinhaSemCriativo extends FunilOrigem {
+  tipo: TipoSemCriativo;
+  mensagem?: string; // só em "mensagem_pronta"
+}
+
 export interface CriativosResumo {
+  // No ar (ou de status desconhecido, quando a conta do Meta não está
+  // configurada), um por linha.
   criativos: ResultadoCriativo[];
-  // Leads sem anúncio de origem, com o mesmo funil — somado aos criativos,
-  // fecha com o funil de conversão.
-  semAnuncio: FunilOrigem;
+  // Fora do ar mas com leads: listados à parte e somados numa linha.
+  pausados: ResultadoCriativo[];
+  totalPausados: FunilOrigem;
+  // Tudo somado — criativos, fora do ar e estas linhas — fecha com o funil
+  // de conversão do painel.
+  semCriativo: LinhaSemCriativo[];
   pendentes: number; // leads cuja origem ainda não foi lida no CRM
 }
 
@@ -553,22 +573,45 @@ function comTaxa<T extends FunilOrigem>(f: T): T {
   return { ...f, taxaAgendamento: f.leads ? (f.agendados / f.leads) * 100 : null };
 }
 
+const ORDEM_SEM_CRIATIVO: TipoSemCriativo[] = [
+  "imagem_nao_identificada",
+  "anuncio_sem_clique",
+  "mensagem_indisponivel",
+  "mensagem_pronta",
+  "sem_rastro",
+  "planilha",
+];
+
 // Agrupa o funil pelo criativo que trouxe cada lead.
 export function computeCriativos(
   leads: Lead[],
   criativos: Record<string, Criativo>,
 ): CriativosResumo {
   const mapa = new Map<string, ResultadoCriativo>();
-  const semAnuncio = funilVazio();
+  const semCriativo = new Map<string, LinhaSemCriativo>();
+  const somarSemCriativo = (tipo: TipoSemCriativo, lead: Lead, mensagem?: string) => {
+    const chave = mensagem ? `${tipo}:${mensagem}` : tipo;
+    if (!semCriativo.has(chave)) semCriativo.set(chave, { ...funilVazio(), tipo, mensagem });
+    somarNoFunil(semCriativo.get(chave)!, lead);
+  };
   let pendentes = 0;
   for (const lead of leads) {
+    if (lead.fonteDados === "planilha") {
+      somarSemCriativo("planilha", lead);
+      continue;
+    }
     if (lead.anuncio === undefined) {
       if (chegou(lead)) pendentes++;
       continue;
     }
     const criativo = lead.anuncio ? criativos[lead.anuncio] : undefined;
     if (!criativo) {
-      somarNoFunil(semAnuncio, lead);
+      const s = lead.semAnuncio ?? { tipo: "sem_rastro" as const };
+      somarSemCriativo(s.tipo, lead, s.mensagem);
+      continue;
+    }
+    if (criativo.variacoes) {
+      somarSemCriativo("imagem_nao_identificada", lead);
       continue;
     }
     if (!mapa.has(criativo.chave)) {
@@ -584,7 +627,7 @@ export function computeCriativos(
   }
   // Criativo no ar sem nenhum lead entra zerado, no fim da lista.
   for (const criativo of Object.values(criativos)) {
-    if (criativo.ativo && !mapa.has(criativo.chave)) {
+    if (criativo.ativo && !criativo.variacoes && !mapa.has(criativo.chave)) {
       mapa.set(criativo.chave, { ...funilVazio(), criativo, primeiroLead: null, ultimoLead: null });
     }
   }
@@ -597,7 +640,27 @@ export function computeCriativos(
         b.agendados - a.agendados ||
         b.leads - a.leads,
     );
-  return { criativos: lista, semAnuncio: comTaxa(semAnuncio), pendentes };
+  const pausados = lista.filter((r) => r.criativo.ativo === false);
+  const totalPausados = funilVazio();
+  for (const r of pausados) {
+    totalPausados.leads += r.leads;
+    totalPausados.qualificados += r.qualificados;
+    totalPausados.agendados += r.agendados;
+    totalPausados.comparecidos += r.comparecidos;
+    totalPausados.convertidos += r.convertidos;
+  }
+  return {
+    criativos: lista.filter((r) => r.criativo.ativo !== false),
+    pausados,
+    totalPausados: comTaxa(totalPausados),
+    semCriativo: Array.from(semCriativo.values())
+      .map(comTaxa)
+      .sort(
+        (a, b) =>
+          ORDEM_SEM_CRIATIVO.indexOf(a.tipo) - ORDEM_SEM_CRIATIVO.indexOf(b.tipo) || b.leads - a.leads,
+      ),
+    pendentes,
+  };
 }
 
 // ---------- Faixa de datas disponível ----------

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import type { CriativosResumo, FunilOrigem, ResultadoCriativo } from "@/lib/metrics";
+import type { CriativosResumo, FunilOrigem, ResultadoCriativo, TipoSemCriativo } from "@/lib/metrics";
 import { formatDayMonth, formatNumber, formatPercent } from "@/lib/format";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { ChartPanel } from "../charts/ChartPanel";
@@ -129,14 +129,6 @@ function OrigemCriativo({ resultado }: { resultado: ResultadoCriativo }) {
           )}
           {periodo && <span>{periodo}</span>}
           {periodo && <span aria-hidden>·</span>}
-          {criativo.variacoes && (
-            <>
-              <span title="Anúncios de imagem com o mesmo texto não têm como ser separados pela mensagem do WhatsApp.">
-                {criativo.variacoes} imagens
-              </span>
-              <span aria-hidden>·</span>
-            </>
-          )}
           {criativo.posts === 0 ? (
             <span>nenhum lead no CRM</span>
           ) : (
@@ -159,39 +151,94 @@ function OrigemCriativo({ resultado }: { resultado: ResultadoCriativo }) {
   );
 }
 
-function OrigemSemAnuncio() {
+// Linha que soma vários leads sem um criativo próprio.
+function OrigemAgregada({
+  titulo,
+  detalhe,
+  acao,
+}: {
+  titulo: React.ReactNode;
+  detalhe: React.ReactNode;
+  acao?: React.ReactNode;
+}) {
   return (
     <span className="flex min-w-0 items-center gap-3">
       <span className="flex h-[56px] w-[44px] shrink-0 items-center justify-center rounded-[var(--radius-sm)] border border-dashed border-[var(--color-border-strong)] text-[16px] text-[var(--color-text-faint)]">
         —
       </span>
       <span className="min-w-0">
-        <span className="block text-[13px] leading-snug text-[var(--color-text-muted)]">
-          Sem anúncio identificado
+        <span className="line-clamp-2 text-[13px] leading-snug text-[var(--color-text-muted)]">{titulo}</span>
+        <span className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[11.5px]">
+          {detalhe}
+          {acao}
         </span>
-        <span className="mt-1 block text-[11.5px]">orgânico, indicação ou chamou sem clicar no anúncio</span>
       </span>
     </span>
   );
 }
 
+const DESCRICAO_SEM_CRIATIVO: Record<TipoSemCriativo, { titulo: string; detalhe: string; dica: string }> = {
+  imagem_nao_identificada: {
+    titulo: "Anúncio de imagem não identificado",
+    detalhe: "veio de uma das imagens com o mesmo texto",
+    dica: "O lead clicou num anúncio de imagem, mas o post do Facebook não diz qual — e há mais de uma imagem com o mesmo texto.",
+  },
+  anuncio_sem_clique: {
+    titulo: "Anúncio, sem registro do clique",
+    detalhe: "começou com a mensagem pronta dos anúncios",
+    dica: "A primeira mensagem é a mesma que os leads de anúncio usam, mas o WhatsApp não mandou o registro do clique — não dá para saber de qual criativo.",
+  },
+  mensagem_indisponivel: {
+    titulo: "Primeira mensagem perdida",
+    detalhe: "chegou ao CRM como “This message is currently unavailable”",
+    dica: "O PipeFácil recebeu a primeira mensagem sem conteúdo — justamente a que traria o anúncio de origem. Provavelmente muitos vieram de anúncio.",
+  },
+  mensagem_pronta: {
+    titulo: "Mensagem pronta",
+    detalhe: "link com texto pronto que não é o do anúncio (ex.: bio do Instagram)",
+    dica: "Vários leads abriram a conversa com essa mesma frase, que os leads de anúncio não usam.",
+  },
+  sem_rastro: {
+    titulo: "Sem rastro de origem",
+    detalhe: "orgânico, indicação ou contato direto",
+    dica: "Nenhum registro de anúncio e uma primeira mensagem comum (\"bom dia\", nome etc.).",
+  },
+  planilha: {
+    titulo: "Histórico da planilha",
+    detalhe: "leads de antes do CRM, sem origem de anúncio",
+    dica: "A planilha não registrava o anúncio de origem.",
+  },
+};
+
+const temLeads = (f: FunilOrigem) => f.leads + f.qualificados + f.agendados + f.comparecidos + f.convertidos > 0;
+
 export function CriativosResultadoSection({ resumo }: CriativosResultadoSectionProps) {
   const [verTodos, setVerTodos] = useState(false);
-  const { criativos, semAnuncio, pendentes } = resumo;
-  const comAnuncio = criativos.reduce((s, c) => s + c.leads, 0);
-  const maxLeads = Math.max(...criativos.map((c) => c.leads), semAnuncio.leads, 1);
+  const [verPausados, setVerPausados] = useState(false);
+  const { criativos, pausados, totalPausados, semCriativo, pendentes } = resumo;
+  const linhasSemCriativo = semCriativo.filter(temLeads);
+  const comCriativo = criativos.reduce((s, c) => s + c.leads, 0) + totalPausados.leads;
+  const semCriativoTotal = linhasSemCriativo.reduce((s, l) => s + l.leads, 0);
+  const maxLeads = Math.max(
+    ...criativos.map((c) => c.leads),
+    totalPausados.leads,
+    ...linhasSemCriativo.map((l) => l.leads),
+    1,
+  );
   const visiveis = verTodos ? criativos : criativos.slice(0, VISIVEIS_INICIAL);
-  const temLinhas = criativos.length > 0 || semAnuncio.leads > 0;
+  const temLinhas = criativos.length > 0 || temLeads(totalPausados) || linhasSemCriativo.length > 0;
+  let linha = visiveis.length;
 
   return (
     <section className="mt-12">
       <SectionHeading title="Criativos" description="o anúncio que levou cada lead a chamar no WhatsApp" />
       <ChartPanel
         title="Resultado por criativo"
-        tooltip="O Meta informa qual anúncio de clique para WhatsApp o lead clicou antes de chamar. Os posts do mesmo vídeo ou imagem (Instagram, Facebook e um por anúncio) contam juntos. A última linha reúne os leads sem anúncio identificado — somada aos criativos, fecha com o funil de conversão. Com período selecionado, cada etapa conta quem a atingiu no período."
+        tooltip="O Meta informa qual anúncio de clique para WhatsApp o lead clicou antes de chamar. Os posts do mesmo vídeo ou imagem (Instagram, Facebook e um por anúncio) contam juntos. Aparecem um a um os criativos no ar; os que já saíram do ar ficam somados numa linha. As últimas linhas separam quem chegou sem criativo identificado pelo que a primeira mensagem indica. Todas as linhas somadas fecham com o funil de conversão. Com período selecionado, cada etapa conta quem a atingiu no período."
       >
         <p className="mb-4 text-[12px] text-[var(--color-text-faint)]">
-          {formatNumber(comAnuncio)} leads vieram de anúncio · {formatNumber(semAnuncio.leads)} sem anúncio
+          {formatNumber(comCriativo)} leads com criativo identificado · {formatNumber(semCriativoTotal)} sem criativo
+          identificado
           {pendentes > 0 && <> · lendo a origem de mais {formatNumber(pendentes)} no CRM</>}
         </p>
 
@@ -234,15 +281,77 @@ export function CriativosResultadoSection({ resumo }: CriativosResultadoSectionP
                 </div>
               )}
 
-              {semAnuncio.leads + semAnuncio.qualificados + semAnuncio.agendados > 0 && (
+              {pausados.length > 0 && temLeads(totalPausados) && (
                 <LinhaFunil
-                  origem={<OrigemSemAnuncio />}
-                  funil={semAnuncio}
+                  origem={
+                    <OrigemAgregada
+                      titulo="Criativos fora do ar"
+                      detalhe={
+                        <span>
+                          {pausados.length === 1
+                            ? "1 criativo pausado ou encerrado"
+                            : `${pausados.length} criativos pausados ou encerrados`}
+                        </span>
+                      }
+                      acao={
+                        <>
+                          <span aria-hidden>·</span>
+                          <button
+                            type="button"
+                            onClick={() => setVerPausados((v) => !v)}
+                            className="underline-offset-2 hover:text-[var(--color-accent)] hover:underline"
+                          >
+                            {verPausados ? "ocultar" : "ver um a um"}
+                          </button>
+                        </>
+                      }
+                    />
+                  }
+                  funil={totalPausados}
                   maxLeads={maxLeads}
-                  index={visiveis.length}
+                  index={linha++}
                   corBarra="var(--color-text-faint)"
                 />
               )}
+              {verPausados &&
+                pausados.map((r, i) => (
+                  <LinhaFunil
+                    key={r.criativo.chave}
+                    origem={
+                      <span className="pl-4 opacity-75">
+                        <OrigemCriativo resultado={r} />
+                      </span>
+                    }
+                    funil={r}
+                    maxLeads={maxLeads}
+                    index={i}
+                    corBarra="var(--color-text-faint)"
+                  />
+                ))}
+
+              {linhasSemCriativo.length > 0 && (
+                <div className="col-span-7 border-t border-[var(--color-border)] pb-1 pt-4 text-[11.5px] uppercase tracking-wide">
+                  Sem criativo identificado
+                </div>
+              )}
+              {linhasSemCriativo.map((l) => {
+                const d = DESCRICAO_SEM_CRIATIVO[l.tipo];
+                return (
+                  <LinhaFunil
+                    key={`${l.tipo}:${l.mensagem ?? ""}`}
+                    origem={
+                      <OrigemAgregada
+                        titulo={l.mensagem ? `${d.titulo}: “${l.mensagem}”` : d.titulo}
+                        detalhe={<span title={d.dica}>{d.detalhe}</span>}
+                      />
+                    }
+                    funil={l}
+                    maxLeads={maxLeads}
+                    index={linha++}
+                    corBarra="var(--color-text-faint)"
+                  />
+                );
+              })}
             </div>
           </div>
         )}

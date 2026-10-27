@@ -13,7 +13,7 @@ import {
   urlMiniaturaArquivada,
 } from "./db";
 import { chaveDeMiniatura, chaveDeTexto } from "./criativo-chave";
-import { buscarIndiceCriativos, type CriativoNaConta } from "./meta-ads";
+import { buscarIndiceCriativos, criativoDoAnuncio, type IndiceCriativos } from "./meta-ads";
 import type { AnuncioOrigem, Criativo, Lead, RespostaSimNao } from "./types";
 
 const BASE_URL = "https://pipefacil-server.matchsales.com.br";
@@ -232,6 +232,9 @@ const formatoBR = new Intl.DateTimeFormat("pt-BR", { timeZone: FUSO });
 export interface EntradaEtapa {
   etapaId: string;
   em: string; // ISO date-time
+  // Só na entrada de criação do lead: a mensagem que abriu a conversa.
+  criacao?: boolean;
+  mensagem?: string | null;
 }
 
 export interface EnriquecimentoNegocio {
@@ -245,7 +248,7 @@ export interface EnriquecimentoNegocio {
 interface Atividade {
   type: string;
   changes: { to?: string } | null;
-  metadata: { stageId?: string } | null;
+  metadata: { stageId?: string; triggerMessage?: string } | null;
   occurredAt: string;
 }
 
@@ -267,7 +270,12 @@ export async function buscarHistoricoDeEtapas(
     if (!res.ok) return res;
     for (const a of res.dados.items) {
       const etapaId = a.type === "STAGE_CHANGED" ? a.changes?.to : a.metadata?.stageId;
-      if (etapaId) entradas.push({ etapaId, em: a.occurredAt });
+      if (!etapaId) continue;
+      entradas.push(
+        a.type === "DEAL_CREATED"
+          ? { etapaId, em: a.occurredAt, criacao: true, mensagem: a.metadata?.triggerMessage ?? null }
+          : { etapaId, em: a.occurredAt },
+      );
     }
     cursor = res.dados.hasMore ? res.dados.nextCursor : null;
     if (!cursor) break;
@@ -313,12 +321,32 @@ export async function buscarAnuncioDeOrigem(
   const conhecido = conhecidos.get(url);
   if (conhecido) return { ok: true, dados: conhecido };
 
-  const daMensagem = await buscarAnuncioNasMensagens(apiKey, negocio, url);
+  const [daMensagem, postId] = await Promise.all([
+    buscarAnuncioNasMensagens(apiKey, negocio, url),
+    resolverPostFacebook(url),
+  ]);
   if (!daMensagem.ok) return daMensagem;
   return {
     ok: true,
-    dados: daMensagem.dados ?? { url, titulo: "", texto: "", miniatura: null, tipoMidia: null },
+    dados: {
+      ...(daMensagem.dados ?? { url, titulo: "", texto: "", miniatura: null, tipoMidia: null }),
+      postId,
+    },
   };
+}
+
+// O link fb.me do anúncio redireciona para o post da página; o ID do post é
+// o que liga o anúncio ao criativo na conta do Meta (ver criativoDoAnuncio).
+// Alguns posts têm ID cifrado (pfbid…), que não serve para isso.
+export async function resolverPostFacebook(url: string): Promise<string | null> {
+  if (!/^https?:\/\/fb\.me\//.test(url)) return null;
+  try {
+    const res = await fetch(url, { method: "HEAD", redirect: "manual", cache: "no-store" });
+    const destino = res.headers.get("location") ?? "";
+    return destino.match(/story_fbid=(\d+)/)?.[1] ?? destino.match(/\/(?:posts|videos|reel)\/(\d+)/)?.[1] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // As páginas de mensagens vêm da mais recente para a mais antiga, e o
@@ -410,11 +438,19 @@ function precisaDeHistorico(negocio: PipeFacilNegocio, m: MarcosDoFunil): boolea
   return progressoDoNegocio(negocio, m).atingiu(m.qualificado);
 }
 
+// Mensagem que abriu a conversa (do registro de criação do lead). Ajuda a
+// entender a origem de quem chegou sem anúncio identificado.
+function primeiraMensagem(e: EnriquecimentoNegocio | undefined): string | null | undefined {
+  const criacao = e?.historico?.find((x) => x.criacao);
+  return criacao ? (criacao.mensagem ?? null) : undefined;
+}
+
 export function converterNegocios(
   funil: PipeFacilFunil,
   negocios: PipeFacilNegocio[],
   campos: PipeFacilCampo[],
   enriquecimentos: Map<number, EnriquecimentoNegocio> = new Map(),
+  indice: IndiceCriativos | null = null,
 ): Lead[] {
   const m = marcosDoFunil(funil);
   const camposPorSlug = new Map(campos.map((c) => [c.slug, c]));
@@ -496,7 +532,7 @@ export function converterNegocios(
       },
       anuncio: enriquecimento?.anuncioLido
         ? enriquecimento.anuncio
-          ? chaveDoCriativo(enriquecimento.anuncio)
+          ? chaveDoCriativo(enriquecimento.anuncio, indice)
           : null
         : undefined,
     };
@@ -506,21 +542,28 @@ export function converterNegocios(
 // ---------- Criativos: agrupamento e miniaturas ----------
 
 // O mesmo criativo vira um post diferente em cada anúncio e posicionamento
-// (Instagram, Facebook via fb.me) — ver criativo-chave.ts. Sem miniatura nem
-// texto, cada post fica sozinho.
-export function chaveDoCriativo(anuncio: AnuncioOrigem): string {
-  return chaveDeMiniatura(anuncio.miniatura) ?? chaveDeTexto(anuncio.texto) ?? anuncio.url;
+// (Instagram, Facebook via fb.me). Vídeo é reconhecido pelo arquivo da
+// miniatura; imagem, pela conta de anúncios do Meta quando configurada, e
+// senão pelo texto (ver criativo-chave.ts). Sem nada disso, cada post fica
+// sozinho.
+export function chaveDoCriativo(anuncio: AnuncioOrigem, indice: IndiceCriativos | null = null): string {
+  return (
+    chaveDeMiniatura(anuncio.miniatura) ??
+    (indice ? criativoDoAnuncio(anuncio, indice) : null) ??
+    chaveDeTexto(anuncio.texto) ??
+    anuncio.url
+  );
 }
 
 // Agrupa os anúncios de origem dos leads em criativos. O link do post
 // exibido é o que mais trouxe leads. A miniatura é, nessa ordem: a cópia
-// arquivada, a atual da conta de anúncios do Meta (quando configurada) ou a
-// da mensagem mais recente (as mais antigas já expiraram).
+// arquivada, a atual da conta de anúncios do Meta ou a da mensagem mais
+// recente (as mais antigas já expiraram).
 export function agruparCriativos(
   negocios: PipeFacilNegocio[],
   enriquecimentos: Map<number, EnriquecimentoNegocio>,
   arquivadas: Set<string>,
-  meta: Map<string, CriativoNaConta>,
+  indice: IndiceCriativos | null,
 ): Record<string, Criativo> {
   const grupos = new Map<
     string,
@@ -529,7 +572,7 @@ export function agruparCriativos(
   for (const n of negocios) {
     const anuncio = enriquecimentos.get(n.seq)?.anuncio;
     if (!anuncio) continue;
-    const chave = chaveDoCriativo(anuncio);
+    const chave = chaveDoCriativo(anuncio, indice);
     const g = grupos.get(chave);
     if (!g) {
       grupos.set(chave, { anuncio, maisRecente: n.createdAt, posts: new Map([[anuncio.url, 1]]) });
@@ -545,7 +588,10 @@ export function agruparCriativos(
   const criativos: Record<string, Criativo> = {};
   for (const [chave, g] of grupos) {
     const postPrincipal = [...g.posts.entries()].sort((a, b) => b[1] - a[1])[0][0];
-    const naConta = meta.get(chave);
+    const naConta = indice?.criativos.get(chave);
+    // Texto que bate com várias imagens da conta: o lead veio de uma delas,
+    // mas o post não diz qual.
+    const imagensPossiveis = chave.startsWith("txt_") ? (indice?.imagensPorTexto.get(chave)?.length ?? 0) : 0;
     criativos[chave] = {
       chave,
       url: postPrincipal,
@@ -556,8 +602,27 @@ export function agruparCriativos(
       miniatura: arquivadas.has(chave)
         ? urlMiniaturaArquivada(chave)
         : (naConta?.miniatura ?? g.anuncio.miniatura),
-      ativo: naConta ? naConta.ativo : null,
-      variacoes: naConta && naConta.variacoes > 1 && chave.startsWith("txt_") ? naConta.variacoes : null,
+      // Com a conta lida, criativo que não está nela é de outra conta ou já
+      // foi apagado — conta como fora do ar.
+      ativo: naConta ? naConta.ativo : indice && imagensPossiveis < 2 ? false : null,
+      variacoes: imagensPossiveis > 1 ? imagensPossiveis : null,
+    };
+  }
+
+  // Criativos no ar que ainda não trouxeram nenhum lead também aparecem —
+  // saber que um anúncio está rodando sem gerar conversa é informação.
+  for (const [chave, naConta] of indice?.criativos ?? []) {
+    if (!naConta.ativo || criativos[chave]) continue;
+    criativos[chave] = {
+      chave,
+      url: naConta.url ?? "",
+      posts: 0,
+      titulo: "",
+      texto: naConta.texto,
+      tipoMidia: naConta.tipoMidia,
+      miniatura: arquivadas.has(chave) ? urlMiniaturaArquivada(chave) : naConta.miniatura,
+      ativo: true,
+      variacoes: null,
     };
   }
   return criativos;
@@ -641,6 +706,8 @@ export async function enriquecerNegocios(
   // Histórico primeiro: ele corrige números do funil; o anúncio só alimenta
   // a seção de criativos. Os mais recentes antes, que é onde o painel olha.
   const recentes = [...negocios].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  // Por último, o histórico só pela primeira mensagem (lead que ainda está
+  // na etapa de entrada, ou lido antes de a mensagem ser guardada).
   const tarefas: { negocio: PipeFacilNegocio; tipo: "historico" | "anuncio" }[] = [
     ...recentes
       .filter((n) => precisaDeHistorico(n, m) && atual(n).etapaAlteradaEm !== n.stageChangedAt)
@@ -648,6 +715,13 @@ export async function enriquecerNegocios(
     ...recentes
       .filter((n) => !atual(n).anuncioLido)
       .map((negocio) => ({ negocio, tipo: "anuncio" as const })),
+    ...recentes
+      .filter(
+        (n) =>
+          primeiraMensagem(atual(n)) === undefined &&
+          !(precisaDeHistorico(n, m) && atual(n).etapaAlteradaEm !== n.stageChangedAt),
+      )
+      .map((negocio) => ({ negocio, tipo: "historico" as const })),
   ].slice(0, orcamento);
 
   // Criativos já conhecidos (com texto e miniatura), para não reler as
@@ -683,6 +757,66 @@ export async function enriquecerNegocios(
   );
 }
 
+// ---------- Origem de quem chegou sem anúncio identificado ----------
+
+function normalizarMensagem(texto: string): string {
+  return texto.toLowerCase().replace(/\s+/g, " ").replace(/[.!?\s]+$/, "").trim();
+}
+
+const MENSAGEM_INDISPONIVEL = /this message is currently unavailable/i;
+// Mensagem pronta de anúncio: a que pelo menos tantos leads com anúncio
+// identificado usaram para abrir a conversa, neste mesmo funil.
+const MINIMO_LEADS_MENSAGEM_DE_ANUNCIO = 3;
+// Outra mensagem pronta (link da bio, botão do site…): repetida por pelo
+// menos tantos leads, e longa o bastante para não ser um "bom dia".
+const MINIMO_LEADS_MENSAGEM_PRONTA = 5;
+const TAMANHO_MINIMO_MENSAGEM_PRONTA = 20;
+
+// Para o lead sem anúncio de origem, a mensagem que abriu a conversa diz
+// muito: a mesma mensagem pronta dos anúncios indica que veio do anúncio e
+// o clique não foi registrado; "This message is currently unavailable" é a
+// mensagem que o CRM não conseguiu receber (justamente a que traria o
+// anúncio); outra frase repetida é um link com texto pronto.
+function classificarSemAnuncio(
+  leads: Lead[],
+  negocios: PipeFacilNegocio[],
+  enriquecimentos: Map<number, EnriquecimentoNegocio>,
+): void {
+  const mensagemDe = new Map<number, string>();
+  for (const n of negocios) {
+    const msg = primeiraMensagem(enriquecimentos.get(n.seq));
+    if (msg) mensagemDe.set(n.seq, normalizarMensagem(msg));
+  }
+
+  const deAnuncio = new Map<string, number>();
+  const repeticoes = new Map<string, number>();
+  for (const lead of leads) {
+    const msg = mensagemDe.get(lead.linha);
+    if (!msg) continue;
+    repeticoes.set(msg, (repeticoes.get(msg) ?? 0) + 1);
+    if (lead.anuncio) deAnuncio.set(msg, (deAnuncio.get(msg) ?? 0) + 1);
+  }
+
+  for (const lead of leads) {
+    if (lead.anuncio !== null) continue;
+    const msg = mensagemDe.get(lead.linha);
+    if (!msg) {
+      lead.semAnuncio = { tipo: "sem_rastro" };
+    } else if (MENSAGEM_INDISPONIVEL.test(msg)) {
+      lead.semAnuncio = { tipo: "mensagem_indisponivel" };
+    } else if ((deAnuncio.get(msg) ?? 0) >= MINIMO_LEADS_MENSAGEM_DE_ANUNCIO) {
+      lead.semAnuncio = { tipo: "anuncio_sem_clique" };
+    } else if (
+      (repeticoes.get(msg) ?? 0) >= MINIMO_LEADS_MENSAGEM_PRONTA &&
+      msg.length >= TAMANHO_MINIMO_MENSAGEM_PRONTA
+    ) {
+      lead.semAnuncio = { tipo: "mensagem_pronta", mensagem: msg };
+    } else {
+      lead.semAnuncio = { tipo: "sem_rastro" };
+    }
+  }
+}
+
 export type LeadsDoFunil =
   | { ok: true; leads: Lead[]; anuncios: Record<string, Criativo>; avisos: string[] }
   | PipeFacilErro;
@@ -701,12 +835,10 @@ export interface ContaMeta {
 // em cache.
 const ESPERA_MAXIMA_INDICE_MS = 3_000;
 
-function indiceSemBloquear(conta: ContaMeta): Promise<Map<string, CriativoNaConta>> {
+function indiceSemBloquear(conta: ContaMeta): Promise<IndiceCriativos | null> {
   return Promise.race([
     buscarIndiceCriativos(conta.adAccountId, conta.token),
-    new Promise<Map<string, CriativoNaConta>>((resolve) =>
-      setTimeout(() => resolve(new Map()), ESPERA_MAXIMA_INDICE_MS),
-    ),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), ESPERA_MAXIMA_INDICE_MS)),
   ]);
 }
 
@@ -724,33 +856,15 @@ export async function buscarLeadsDoFunil(
   if (!negocios.ok) return negocios;
   if (!campos.ok) return campos;
 
-  const enriquecimentos = await enriquecerNegocios(apiKey, funil.dados, negocios.dados);
-  const leads = converterNegocios(funil.dados, negocios.dados, campos.dados, enriquecimentos);
+  const [enriquecimentos, arquivadas, indice] = await Promise.all([
+    enriquecerNegocios(apiKey, funil.dados, negocios.dados),
+    listarMiniaturasArquivadas(),
+    contaMeta ? indiceSemBloquear(contaMeta) : Promise.resolve(null),
+  ]);
+  const leads = converterNegocios(funil.dados, negocios.dados, campos.dados, enriquecimentos, indice);
 
   // Os dados do anúncio vão uma vez por criativo, não repetidos em cada lead.
-  const [arquivadas, indiceMeta] = await Promise.all([
-    listarMiniaturasArquivadas(),
-    contaMeta
-      ? indiceSemBloquear(contaMeta)
-      : Promise.resolve(new Map<string, CriativoNaConta>()),
-  ]);
-  const anuncios = agruparCriativos(negocios.dados, enriquecimentos, arquivadas, indiceMeta);
-  // Criativos no ar que ainda não trouxeram nenhum lead também aparecem —
-  // saber que um anúncio está rodando sem gerar conversa é informação.
-  for (const [chave, naConta] of indiceMeta) {
-    if (!naConta.ativo || anuncios[chave]) continue;
-    anuncios[chave] = {
-      chave,
-      url: naConta.url ?? "",
-      posts: 0,
-      titulo: "",
-      texto: naConta.texto,
-      tipoMidia: naConta.tipoMidia,
-      miniatura: arquivadas.has(chave) ? urlMiniaturaArquivada(chave) : naConta.miniatura,
-      ativo: true,
-      variacoes: naConta.variacoes > 1 ? naConta.variacoes : null,
-    };
-  }
+  const anuncios = agruparCriativos(negocios.dados, enriquecimentos, arquivadas, indice);
   await arquivarMiniaturasNovas(anuncios, arquivadas);
 
   const avisos: string[] = [];
@@ -764,5 +878,6 @@ export async function buscarLeadsDoFunil(
       "Nenhum lead do PipeFácil tem valor preenchido — ticket médio e receita projetada ficam sem dados do CRM.",
     );
   }
+  classificarSemAnuncio(leads, negocios.dados, enriquecimentos);
   return { ok: true, leads, anuncios, avisos };
 }
