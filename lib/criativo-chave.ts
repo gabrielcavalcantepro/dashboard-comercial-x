@@ -8,6 +8,9 @@
 // com o mesmo texto aparecem juntas.
 
 export function chaveDeMiniatura(url: string | null | undefined): string | null {
+  // Post do Instagram impulsionado vem com a foto de perfil da página como
+  // miniatura (pasta t39.30808-1) — igual para todos, não identifica nada.
+  if (url?.includes("/t39.30808-1/")) return null;
   const arquivo = url?.split("?")[0].split("/").pop();
   const m = arquivo?.match(/^(.+?)(?:_n)?\.(?:jpe?g|png|webp)$/i);
   return m ? m[1] : null;

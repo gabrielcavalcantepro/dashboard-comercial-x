@@ -418,7 +418,7 @@ async function montarIndice(conta: string, token: string): Promise<IndiceCriativ
       const videoId = c.video_id ?? c.object_story_spec?.video_data?.video_id;
       const imagem = c.image_hash ?? c.object_story_spec?.link_data?.image_hash;
       const chave = videoId
-        ? chaveDeMiniatura(c.thumbnail_url)
+        ? (chaveDeMiniatura(c.thumbnail_url) ?? `vid_${videoId}`)
         : imagem
           ? `img_${imagem}`
           : c.id

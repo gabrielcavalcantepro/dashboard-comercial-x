@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { buscarCliente } from "@/lib/db";
 import { buscarDadosAds } from "@/lib/meta-ads";
 import type { AdsData } from "@/lib/meta-types";
+import { addDaysISO, hojeISO } from "@/lib/format";
 
 // TTL mais longo que o dos leads: métricas de anúncio não mudam a cada
 // segundo, e cada atualização aqui dispara várias chamadas à API do Meta
@@ -24,9 +25,6 @@ function getCache(): Map<string, CacheEntry> {
   return global.__adsCache;
 }
 
-function toISODate(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -40,8 +38,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   const { searchParams } = new URL(req.url);
-  const hoje = toISODate(new Date());
-  const inicio = searchParams.get("inicio") || toISODate(new Date(Date.now() - 29 * 86400000));
+  const hoje = hojeISO();
+  const inicio = searchParams.get("inicio") || addDaysISO(hoje, -29);
   const fim = searchParams.get("fim") || hoje;
   const periodo = { inicio, fim };
   const chave = `${id}:${inicio}:${fim}`;

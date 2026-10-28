@@ -63,6 +63,15 @@ export function toISODate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+// "Hoje" no horário de Brasília, o mesmo fuso em que os leads são datados.
+// toISODate(new Date()) daria o dia em UTC — que, das 21h à meia-noite, já é
+// o dia seguinte.
+const formatoDiaBrasilia = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" });
+
+export function hojeISO(): string {
+  return formatoDiaBrasilia.format(new Date());
+}
+
 export function addDaysISO(iso: string, days: number): string {
   const d = parseISODate(iso);
   d.setUTCDate(d.getUTCDate() + days);

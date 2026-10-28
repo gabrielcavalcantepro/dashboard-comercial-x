@@ -24,7 +24,7 @@ import {
   type Filtros,
   type Periodo,
 } from "@/lib/metrics";
-import { addDaysISO, formatCurrency, formatDateBR, formatNumber, toISODate } from "@/lib/format";
+import { addDaysISO, formatCurrency, formatDateBR, formatNumber, hojeISO } from "@/lib/format";
 import { useLiveLeads } from "@/hooks/useLiveLeads";
 import { useToast } from "@/components/ui/Toast";
 import { DashboardHeader } from "./DashboardHeader";
@@ -87,14 +87,14 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
   // seção de tráfego pago usa os últimos 30 dias como padrão.
   const periodoAds: Periodo = useMemo(() => {
     if (filtros.periodo) return filtros.periodo;
-    const hoje = toISODate(new Date());
+    const hoje = hojeISO();
     return { inicio: addDaysISO(hoje, -29), fim: hoje };
   }, [filtros.periodo]);
 
   const granularidade = useMemo(() => {
     if (filtros.periodo) return definirGranularidade(filtros.periodo.inicio, filtros.periodo.fim);
     const faixa = faixaDeDatasDisponivel(leadsFiltrados);
-    const hoje = toISODate(new Date());
+    const hoje = hojeISO();
     return definirGranularidade(faixa?.inicio ?? hoje, faixa?.fim ?? hoje);
   }, [filtros.periodo, leadsFiltrados]);
 

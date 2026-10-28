@@ -6,7 +6,7 @@ import { Select } from "@/components/ui/Select";
 import { DateRangePicker, type DateRangePreset } from "@/components/ui/DateRangePicker";
 import { Button } from "@/components/ui/Button";
 import type { Periodo } from "@/lib/metrics";
-import { addDaysISO, toISODate } from "@/lib/format";
+import { addDaysISO, hojeISO } from "@/lib/format";
 
 interface ReportModalProps {
   open: boolean;
@@ -19,12 +19,12 @@ interface ReportModalProps {
 const TODOS_VENDEDORES = "__todos__";
 
 function periodoPadrao(): Periodo {
-  const hoje = toISODate(new Date());
+  const hoje = hojeISO();
   return { inicio: addDaysISO(hoje, -29), fim: hoje };
 }
 
 function presetsRelatorio(): DateRangePreset[] {
-  const hoje = toISODate(new Date());
+  const hoje = hojeISO();
   return [
     { rotulo: "Ontem", periodo: { inicio: addDaysISO(hoje, -1), fim: addDaysISO(hoje, -1) } },
     { rotulo: "Últimos 7 dias", periodo: { inicio: addDaysISO(hoje, -6), fim: hoje } },

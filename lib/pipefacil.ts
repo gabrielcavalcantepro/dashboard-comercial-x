@@ -450,7 +450,7 @@ export function converterNegocios(
   negocios: PipeFacilNegocio[],
   campos: PipeFacilCampo[],
   enriquecimentos: Map<number, EnriquecimentoNegocio> = new Map(),
-  indice: IndiceCriativos | null = null,
+  identificar: (anuncio: AnuncioOrigem) => string = (a) => chaveDoCriativo(a),
 ): Lead[] {
   const m = marcosDoFunil(funil);
   const camposPorSlug = new Map(campos.map((c) => [c.slug, c]));
@@ -532,7 +532,7 @@ export function converterNegocios(
       },
       anuncio: enriquecimento?.anuncioLido
         ? enriquecimento.anuncio
-          ? chaveDoCriativo(enriquecimento.anuncio, indice)
+          ? identificar(enriquecimento.anuncio)
           : null
         : undefined,
     };
@@ -546,13 +546,33 @@ export function converterNegocios(
 // miniatura; imagem, pela conta de anúncios do Meta quando configurada, e
 // senão pelo texto (ver criativo-chave.ts). Sem nada disso, cada post fica
 // sozinho.
-export function chaveDoCriativo(anuncio: AnuncioOrigem, indice: IndiceCriativos | null = null): string {
+export function chaveDoCriativo(
+  anuncio: AnuncioOrigem,
+  indice: IndiceCriativos | null = null,
+  miniaturasAmbiguas: Set<string> = new Set(),
+): string {
+  const daMiniatura = chaveDeMiniatura(anuncio.miniatura);
   return (
-    chaveDeMiniatura(anuncio.miniatura) ??
     (indice ? criativoDoAnuncio(anuncio, indice) : null) ??
+    (daMiniatura && !miniaturasAmbiguas.has(daMiniatura) ? daMiniatura : null) ??
     chaveDeTexto(anuncio.texto) ??
     anuncio.url
   );
+}
+
+// Miniatura que aparece em anúncios de textos diferentes não é do vídeo:
+// é uma imagem genérica (ex.: foto de perfil em post impulsionado) e
+// juntaria criativos distintos.
+export function miniaturasAmbiguas(anuncios: AnuncioOrigem[]): Set<string> {
+  const textos = new Map<string, Set<string>>();
+  for (const a of anuncios) {
+    const chave = chaveDeMiniatura(a.miniatura);
+    const texto = chaveDeTexto(a.texto);
+    if (!chave || !texto) continue;
+    if (!textos.has(chave)) textos.set(chave, new Set());
+    textos.get(chave)!.add(texto);
+  }
+  return new Set([...textos].filter(([, t]) => t.size > 1).map(([chave]) => chave));
 }
 
 // Agrupa os anúncios de origem dos leads em criativos. O link do post
@@ -564,6 +584,7 @@ export function agruparCriativos(
   enriquecimentos: Map<number, EnriquecimentoNegocio>,
   arquivadas: Set<string>,
   indice: IndiceCriativos | null,
+  identificar: (anuncio: AnuncioOrigem) => string,
 ): Record<string, Criativo> {
   const grupos = new Map<
     string,
@@ -572,7 +593,7 @@ export function agruparCriativos(
   for (const n of negocios) {
     const anuncio = enriquecimentos.get(n.seq)?.anuncio;
     if (!anuncio) continue;
-    const chave = chaveDoCriativo(anuncio, indice);
+    const chave = identificar(anuncio);
     const g = grupos.get(chave);
     if (!g) {
       grupos.set(chave, { anuncio, maisRecente: n.createdAt, posts: new Map([[anuncio.url, 1]]) });
@@ -861,10 +882,14 @@ export async function buscarLeadsDoFunil(
     listarMiniaturasArquivadas(),
     contaMeta ? indiceSemBloquear(contaMeta) : Promise.resolve(null),
   ]);
-  const leads = converterNegocios(funil.dados, negocios.dados, campos.dados, enriquecimentos, indice);
+  const ambiguas = miniaturasAmbiguas(
+    [...enriquecimentos.values()].flatMap((e) => (e.anuncio ? [e.anuncio] : [])),
+  );
+  const identificar = (a: AnuncioOrigem) => chaveDoCriativo(a, indice, ambiguas);
+  const leads = converterNegocios(funil.dados, negocios.dados, campos.dados, enriquecimentos, identificar);
 
   // Os dados do anúncio vão uma vez por criativo, não repetidos em cada lead.
-  const anuncios = agruparCriativos(negocios.dados, enriquecimentos, arquivadas, indice);
+  const anuncios = agruparCriativos(negocios.dados, enriquecimentos, arquivadas, indice, identificar);
   await arquivarMiniaturasNovas(anuncios, arquivadas);
 
   const avisos: string[] = [];

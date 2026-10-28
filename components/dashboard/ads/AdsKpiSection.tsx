@@ -33,7 +33,7 @@ export function AdsKpiSection({ agregado, agregadoAnterior }: AdsKpiSectionProps
           label="Conversas iniciadas"
           value={formatNumber(agregado.conversas)}
           variacao={rel("conversas")}
-          tooltip="Quantas conversas no WhatsApp/Instagram foram iniciadas a partir dos anúncios (onsite_conversion.messaging_conversation_started_7d)."
+          tooltip="Quantas conversas no WhatsApp/Instagram foram iniciadas a partir dos anúncios, como o Meta conta (onsite_conversion.messaging_conversation_started_7d). Costuma ser maior que o total de leads novos do CRM: inclui contatos que já estavam no CRM e voltaram pelo anúncio, conversas pelo Direct do Instagram (que não chegam ao WhatsApp) e é registrada no dia do clique no anúncio, sendo atualizada por até 7 dias."
           delay={0.05}
         />
         <KpiCard

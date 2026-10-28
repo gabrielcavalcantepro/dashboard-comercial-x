@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import type { ClientePublico, Lead } from "@/lib/types";
-import { addDaysISO, toISODate } from "@/lib/format";
+import { addDaysISO, hojeISO } from "@/lib/format";
 import { ClientFormModal } from "./ClientFormModal";
 
 interface ClientRowProps {
@@ -23,7 +23,7 @@ export function ClientRow({ cliente, index }: ClientRowProps) {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((data: { leads: Lead[] }) => {
         if (!ativo) return;
-        const hoje = toISODate(new Date());
+        const hoje = hojeISO();
         // Janela rolante de 30 dias em vez de mês-calendário: evita mostrar
         // "0" logo após virar o mês mesmo com atividade recente de sobra.
         const inicio = addDaysISO(hoje, -29);

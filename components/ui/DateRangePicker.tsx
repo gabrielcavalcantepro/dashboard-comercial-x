@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import clsx from "clsx";
 import type { Periodo } from "@/lib/metrics";
-import { addDaysISO, formatDateBR, toISODate } from "@/lib/format";
+import { addDaysISO, formatDateBR, hojeISO, toISODate } from "@/lib/format";
 
 export interface DateRangePreset {
   rotulo: string;
@@ -27,10 +27,6 @@ const DIAS_SEMANA = ["S", "T", "Q", "Q", "S", "S", "D"];
 const GAP = 6;
 const MARGEM = 12;
 
-function hojeISO(): string {
-  return toISODate(new Date());
-}
-
 function primeiroDiaDoMes(ano: number, mes: number): Date {
   return new Date(Date.UTC(ano, mes, 1));
 }
@@ -51,6 +47,7 @@ export function presetsPadrao(): DateRangePreset[] {
   return [
     { rotulo: "Todo o período", periodo: null },
     { rotulo: "Hoje", periodo: { inicio: hoje, fim: hoje } },
+    { rotulo: "Ontem", periodo: { inicio: addDaysISO(hoje, -1), fim: addDaysISO(hoje, -1) } },
     { rotulo: "Últimos 7 dias", periodo: { inicio: addDaysISO(hoje, -6), fim: hoje } },
     { rotulo: "Últimos 30 dias", periodo: { inicio: addDaysISO(hoje, -29), fim: hoje } },
     {
@@ -70,9 +67,9 @@ export function DateRangePicker({
   const [modoCustom, setModoCustom] = useState(false);
   const [inicioTemp, setInicioTemp] = useState<string | null>(null);
   const [fimTemp, setFimTemp] = useState<string | null>(null);
-  const hoje = new Date();
-  const [viewAno, setViewAno] = useState(hoje.getUTCFullYear());
-  const [viewMes, setViewMes] = useState(hoje.getUTCMonth());
+  const hoje = hojeISO();
+  const [viewAno, setViewAno] = useState(Number(hoje.slice(0, 4)));
+  const [viewMes, setViewMes] = useState(Number(hoje.slice(5, 7)) - 1);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -243,8 +240,20 @@ export function DateRangePicker({
                       >
                         ‹
                       </button>
-                      <span className="text-[13px] font-medium text-[var(--color-text)]">
+                      <span className="flex items-center gap-2 text-[13px] font-medium text-[var(--color-text)]">
                         {MESES[viewMes]} {viewAno}
+                        {(viewAno !== Number(hoje.slice(0, 4)) || viewMes !== Number(hoje.slice(5, 7)) - 1) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setViewAno(Number(hoje.slice(0, 4)));
+                              setViewMes(Number(hoje.slice(5, 7)) - 1);
+                            }}
+                            className="rounded-full border border-[var(--color-border-strong)] px-2 py-px text-[11px] font-normal text-[var(--color-text-muted)] hover:text-[var(--color-accent)]"
+                          >
+                            hoje
+                          </button>
+                        )}
                       </span>
                       <button
                         type="button"
@@ -268,14 +277,29 @@ export function DateRangePicker({
                             key={iso}
                             type="button"
                             onClick={() => clicarDia(iso)}
+                            title={iso === hoje ? "Hoje" : undefined}
+                            aria-current={iso === hoje ? "date" : undefined}
                             className={clsx(
-                              "aspect-square rounded-[7px] text-[12.5px] transition-colors",
+                              "relative aspect-square rounded-[7px] text-[12.5px] transition-colors",
                               emIntervalo(iso)
                                 ? "bg-[var(--color-accent)] text-[var(--color-accent-ink)]"
-                                : "text-[var(--color-text-muted)] hover:bg-white/8 hover:text-[var(--color-text)]",
+                                : iso === hoje
+                                  ? "font-semibold text-[var(--color-accent)] ring-1 ring-inset ring-[var(--color-accent-border)] hover:bg-white/8"
+                                  : iso > hoje
+                                    ? "text-[var(--color-text-faint)] hover:bg-white/8 hover:text-[var(--color-text)]"
+                                    : "text-[var(--color-text-muted)] hover:bg-white/8 hover:text-[var(--color-text)]",
                             )}
                           >
                             {Number(iso.slice(8, 10))}
+                            {iso === hoje && (
+                              <span
+                                aria-hidden
+                                className={clsx(
+                                  "absolute bottom-[3px] left-1/2 h-[3px] w-[3px] -translate-x-1/2 rounded-full",
+                                  emIntervalo(iso) ? "bg-[var(--color-accent-ink)]" : "bg-[var(--color-accent)]",
+                                )}
+                              />
+                            )}
                           </button>
                         ) : (
                           <div key={`empty-${i}`} />
@@ -283,6 +307,7 @@ export function DateRangePicker({
                       )}
                     </div>
                     <p className="mt-3 text-[11.5px] text-[var(--color-text-faint)]">
+                      Hoje: {formatDateBR(hoje)} ·{" "}
                       {inicioTemp
                         ? `De ${formatDateBR(inicioTemp)}${fimTemp ? ` até ${formatDateBR(fimTemp)}` : " — selecione o fim"}`
                         : "Selecione a data inicial"}
