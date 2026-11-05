@@ -20,6 +20,11 @@ function linkDaPlanilha(cliente: ClientePublico): string {
   return `https://docs.google.com/spreadsheets/d/${cliente.sheetId}/edit`;
 }
 
+function linkDaPlanilhaDeComparecimentos(cliente: ClientePublico): string {
+  if (!cliente.planilhaComparecimentosId) return "";
+  return `https://docs.google.com/spreadsheets/d/${cliente.planilhaComparecimentosId}/edit`;
+}
+
 function IconNome() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -105,11 +110,16 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
   const [funis, setFunis] = useState<SelectOption[]>([]);
   const [erroFunis, setErroFunis] = useState<string | null>(null);
   const [metaAdAccountId, setMetaAdAccountId] = useState(cliente?.metaAdAccountId ?? "");
+  const [linkComparecimentos, setLinkComparecimentos] = useState(
+    cliente ? linkDaPlanilhaDeComparecimentos(cliente) : "",
+  );
   // O token nunca chega ao navegador (ver ClientePublico) — o campo começa
   // sempre vazio; deixar vazio ao salvar mantém o token já configurado.
   const [metaAccessToken, setMetaAccessToken] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  // Excluir pede uma segunda confirmação no próprio modal.
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
 
   // Reidrata o formulário sempre que o modal abre — ajustado durante a
   // renderização (não em efeito) seguindo o padrão recomendado pelo React
@@ -124,8 +134,10 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
       setAbaNome("Leads");
       setFunilSeq(String(cliente?.pipefacilPipelineSeq ?? ""));
       setMetaAdAccountId(cliente?.metaAdAccountId ?? "");
+      setLinkComparecimentos(cliente ? linkDaPlanilhaDeComparecimentos(cliente) : "");
       setMetaAccessToken("");
       setErro(null);
+      setConfirmandoExclusao(false);
     }
   }
 
@@ -170,8 +182,17 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           editando
-            ? { nome, segmento, linkPlanilha, pipefacilPipelineSeq, metaAdAccountId, metaAccessToken }
-            : { nome, segmento, linkPlanilha, abaNome, pipefacilPipelineSeq, metaAdAccountId, metaAccessToken },
+            ? { nome, segmento, linkPlanilha, pipefacilPipelineSeq, metaAdAccountId, metaAccessToken, linkComparecimentos }
+            : {
+                nome,
+                segmento,
+                linkPlanilha,
+                abaNome,
+                pipefacilPipelineSeq,
+                metaAdAccountId,
+                metaAccessToken,
+                linkComparecimentos,
+              },
         ),
       });
       const data = await res.json();
@@ -187,6 +208,30 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
         "success",
       );
       onClose();
+      router.refresh();
+    } catch {
+      setErro("Não foi possível conectar ao servidor. Tente novamente.");
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  const excluir = async () => {
+    if (!cliente) return;
+    setErro(null);
+    setEnviando(true);
+    try {
+      const res = await fetch(`/api/clientes/${cliente.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setErro(data.erro ?? "Não foi possível excluir o cliente.");
+        setEnviando(false);
+        return;
+      }
+      push(`Cliente "${cliente.nome}" excluído.`, "success");
+      onClose();
+      // Excluído de dentro do painel dele, volta para a lista de clientes.
+      router.push("/");
       router.refresh();
     } catch {
       setErro("Não foi possível conectar ao servidor. Tente novamente.");
@@ -270,6 +315,21 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
 
         <div className="flex items-center gap-2.5 pt-1">
           <span className="h-[6px] w-[6px] shrink-0 rounded-full bg-[var(--color-accent)]" />
+          <span className="text-[13px] font-medium text-[var(--color-text)]">Acompanhamento de comparecimentos (opcional)</span>
+        </div>
+        <TextField
+          label="Link da planilha de acompanhamento"
+          name="linkComparecimentos"
+          icon={<IconLink />}
+          placeholder="https://docs.google.com/spreadsheets/d/..."
+          value={linkComparecimentos}
+          onChange={(e) => setLinkComparecimentos(e.target.value)}
+          hint='Pacientes que compareceram, com as colunas Data, Nome do paciente, Procedimento e Valor do procedimento. Com ela, o ticket médio e a receita projetada usam o valor pago. Compartilhe como "Qualquer pessoa com o link → Leitor".'
+          disabled={enviando}
+        />
+
+        <div className="flex items-center gap-2.5 pt-1">
+          <span className="h-[6px] w-[6px] shrink-0 rounded-full bg-[var(--color-accent)]" />
           <span className="text-[13px] font-medium text-[var(--color-text)]">Meta Ads (opcional)</span>
         </div>
         <TextField
@@ -304,7 +364,41 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
           </div>
         )}
 
-        <div className="mt-2 flex justify-end gap-3">
+        {confirmandoExclusao && cliente && (
+          <div className="flex flex-col gap-3 rounded-[var(--radius-sm)] border border-[rgba(255,111,112,0.35)] bg-[rgba(255,111,112,0.08)] px-3.5 py-3">
+            <p className="text-[13px] leading-relaxed text-[var(--color-text)]">
+              Excluir <strong>{cliente.nome}</strong> do painel? O cadastro e as configurações saem daqui. Os
+              leads no PipeFácil, as planilhas e a conta do Meta não são apagados.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmandoExclusao(false)}
+                disabled={enviando}
+              >
+                Manter cliente
+              </Button>
+              <Button type="button" variant="danger" size="sm" onClick={excluir} disabled={enviando}>
+                {enviando ? "Excluindo…" : "Excluir definitivamente"}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-2 flex items-center justify-end gap-3">
+          {editando && !confirmandoExclusao && (
+            <Button
+              type="button"
+              variant="danger"
+              className="mr-auto"
+              onClick={() => setConfirmandoExclusao(true)}
+              disabled={enviando}
+            >
+              Excluir cliente
+            </Button>
+          )}
           <Button type="button" variant="ghost" onClick={fechar} disabled={enviando}>
             Cancelar
           </Button>

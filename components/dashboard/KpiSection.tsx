@@ -11,11 +11,14 @@ interface KpiSectionProps {
 export function KpiSection({ kpis, kpisAnterior }: KpiSectionProps) {
   const c = kpis.comparecimentos;
   const porDia = c?.pacientesPorDia?.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) ?? "0";
+  const mes = c
+    ? new Date(`${c.mesProjetado}-15T12:00:00`).toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
+    : "";
   const tooltipReceita = c
-    ? `Ticket médio × pacientes por dia × dias de trabalho, pela planilha de comparecimentos: ${formatCurrency(kpis.ticketMedio)} × ${porDia} pacientes/dia × ${c.diasDeTrabalho} ${c.diasDeTrabalho === 1 ? "dia" : "dias"} com paciente no período.`
+    ? `Projeção para ${mes}: ticket médio × pacientes por dia × dias úteis do mês, pela planilha de acompanhamento. ${formatCurrency(kpis.ticketMedio)} × ${porDia} pacientes/dia (média dos ${c.diasComPaciente} ${c.diasComPaciente === 1 ? "dia" : "dias"} com paciente no período) × ${c.diasUteisNoMes} dias úteis (segunda a sexta, sem descontar feriados).`
     : "Soma do Ticket Médio de todos os leads com status Agendado no período filtrado.";
   const tooltipTicket = c
-    ? `Valor pago ÷ número de pacientes, pela planilha de comparecimentos: ${formatCurrency(c.valorTotal)} ÷ ${c.pacientes} ${c.pacientes === 1 ? "paciente" : "pacientes"} no período.`
+    ? `Valor pago ÷ número de pacientes, pela planilha de acompanhamento: ${formatCurrency(c.valorTotal)} ÷ ${c.pacientes} ${c.pacientes === 1 ? "paciente" : "pacientes"} no período.`
     : "Valor médio do procedimento de interesse, considerando todos os leads com valor preenchido.";
   const rel = (atual: number, anteriorKey: keyof KpiValues) =>
     kpisAnterior ? variacaoRelativa(atual, kpisAnterior[anteriorKey] as number) : null;

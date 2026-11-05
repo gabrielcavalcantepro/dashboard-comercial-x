@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { criarCliente, listarClientes, paraClientePublico } from "@/lib/db";
+import { lerPlanilhaDeComparecimentos } from "@/lib/comparecimentos";
 import { buscarFunil } from "@/lib/pipefacil";
 import { buscarValoresPlanilha, extrairSheetId, validarCabecalho } from "@/lib/sheets";
 import type { NovoClienteInput } from "@/lib/types";
@@ -26,6 +27,7 @@ export async function POST(req: Request) {
   const abaNome = (body.abaNome ?? "Leads").trim() || "Leads";
   const metaAdAccountId = (body.metaAdAccountId ?? "").trim();
   const metaAccessToken = (body.metaAccessToken ?? "").trim();
+  const linkComparecimentos = (body.linkComparecimentos ?? "").trim();
 
   if (!nome) {
     return NextResponse.json({ erro: "Informe o nome do cliente." }, { status: 400 });
@@ -71,6 +73,21 @@ export async function POST(req: Request) {
     }
   }
 
+  let planilhaComparecimentosId: string | null = null;
+  if (linkComparecimentos) {
+    planilhaComparecimentosId = extrairSheetId(linkComparecimentos);
+    if (!planilhaComparecimentosId) {
+      return NextResponse.json(
+        { erro: "Não conseguimos identificar o ID da planilha de acompanhamento nesse link. Cole o link completo do Google Sheets." },
+        { status: 400 },
+      );
+    }
+    const leitura = await lerPlanilhaDeComparecimentos(planilhaComparecimentosId);
+    if (!leitura.ok) {
+      return NextResponse.json({ erro: leitura.mensagem }, { status: 422 });
+    }
+  }
+
   const cliente = await criarCliente({
     nome,
     segmento,
@@ -80,6 +97,7 @@ export async function POST(req: Request) {
     pipefacilPipelineSeq,
     metaAdAccountId,
     metaAccessToken,
+    planilhaComparecimentosId,
   });
   return NextResponse.json({ cliente: paraClientePublico(cliente) }, { status: 201 });
 }

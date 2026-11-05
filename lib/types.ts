@@ -99,6 +99,9 @@ export interface Cliente {
   criadoEm: string;
   metaAdAccountId: string | null;
   metaAccessToken: string | null;
+  // Planilha de acompanhamento dos pacientes que compareceram (valor pago):
+  // fonte do ticket médio e da receita projetada.
+  planilhaComparecimentosId: string | null;
 }
 
 // Versão do Cliente segura para trafegar até o navegador: o token do Meta
@@ -116,10 +119,9 @@ export interface NovoClienteInput {
   pipefacilPipelineSeq?: number | null;
   metaAdAccountId?: string;
   metaAccessToken?: string;
+  linkComparecimentos?: string;
 }
 
-// Criativo exibido no painel: todos os posts (Instagram, Facebook, um por
-// anúncio) que usam o mesmo vídeo ou imagem.
 // Paciente que compareceu, na planilha de comparecimentos do cliente.
 export interface Comparecimento {
   data: string; // YYYY-MM-DD
@@ -128,6 +130,8 @@ export interface Comparecimento {
   valor: number; // valor pago
 }
 
+// Criativo exibido no painel: todos os posts (Instagram, Facebook, um por
+// anúncio) que usam o mesmo vídeo ou imagem.
 export interface Criativo {
   chave: string;
   url: string; // post que mais trouxe leads

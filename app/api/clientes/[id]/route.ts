@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { atualizarCliente, buscarCliente, paraClientePublico, removerCliente } from "@/lib/db";
+import { lerPlanilhaDeComparecimentos } from "@/lib/comparecimentos";
 import { buscarFunil } from "@/lib/pipefacil";
 import { buscarValoresPlanilha, extrairSheetId, validarCabecalho } from "@/lib/sheets";
 
@@ -32,6 +33,7 @@ export async function PATCH(
     pipefacilPipelineSeq?: number | null;
     metaAdAccountId?: string;
     metaAccessToken?: string;
+    linkComparecimentos?: string;
   };
   try {
     body = await req.json();
@@ -47,6 +49,7 @@ export async function PATCH(
   const linkPlanilha = (body.linkPlanilha ?? "").trim();
   const metaAdAccountId = (body.metaAdAccountId ?? "").trim();
   const metaAccessToken = (body.metaAccessToken ?? "").trim();
+  const linkComparecimentos = (body.linkComparecimentos ?? "").trim();
 
   if (!nome) {
     return NextResponse.json({ erro: "Informe o nome do cliente." }, { status: 400 });
@@ -93,6 +96,21 @@ export async function PATCH(
     }
   }
 
+  const planilhaComparecimentosId = linkComparecimentos ? extrairSheetId(linkComparecimentos) : null;
+  if (linkComparecimentos && !planilhaComparecimentosId) {
+    return NextResponse.json(
+      { erro: "Não conseguimos identificar o ID da planilha de acompanhamento nesse link. Cole o link completo do Google Sheets." },
+      { status: 400 },
+    );
+  }
+  const comparecimentosMudou = planilhaComparecimentosId !== cliente.planilhaComparecimentosId;
+  if (planilhaComparecimentosId && comparecimentosMudou) {
+    const leitura = await lerPlanilhaDeComparecimentos(planilhaComparecimentosId);
+    if (!leitura.ok) {
+      return NextResponse.json({ erro: leitura.mensagem }, { status: 422 });
+    }
+  }
+
   const atualizado = await atualizarCliente(id, {
     nome,
     segmento,
@@ -100,6 +118,8 @@ export async function PATCH(
     pipefacilPipelineSeq,
     metaAdAccountId,
     metaAccessToken,
+    // Só grava quando muda: trocar outros campos não depende da coluna nova.
+    planilhaComparecimentosId: comparecimentosMudou ? planilhaComparecimentosId : undefined,
   });
   return NextResponse.json({ cliente: atualizado ? paraClientePublico(atualizado) : null });
 }

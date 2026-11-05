@@ -18,6 +18,10 @@ create table if not exists clientes (
 alter table clientes add column if not exists pipefacil_pipeline_seq integer;
 alter table clientes alter column sheet_id drop not null;
 
+-- Planilha de acompanhamento dos pacientes que compareceram (valor pago por
+-- paciente): fonte do ticket médio e da receita projetada do cliente.
+alter table clientes add column if not exists planilha_comparecimentos_id text;
+
 -- Histórico de etapas e anúncio de origem de cada lead do PipeFácil, lidos
 -- uma vez por lead (uma chamada ao CRM cada) e guardados aqui. seq é o
 -- número do negócio no workspace do PipeFácil.

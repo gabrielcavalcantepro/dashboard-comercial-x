@@ -117,18 +117,18 @@ async function carregarLeads(cliente: Cliente): Promise<Carga> {
 // A lista de clientes e o painel pedem o mesmo cliente ao mesmo tempo; uma
 // leitura em andamento é compartilhada para não repetir as chamadas ao CRM
 // (e o enriquecimento dos leads, que custa uma chamada por lead).
-// A planilha de comparecimentos (ticket médio e receita projetada) é lida
+// A planilha de acompanhamento (ticket médio e receita projetada) é lida
 // junto com os leads.
 async function carregarTudo(
   cliente: Cliente,
 ): Promise<{ carga: Carga; comparecimentos: Comparecimento[] | null; avisoComparecimentos: string | null }> {
-  const [carga, comparecimentos] = await Promise.all([carregarLeads(cliente), carregarComparecimentos(cliente.id)]);
+  const [carga, comparecimentos] = await Promise.all([carregarLeads(cliente), carregarComparecimentos(cliente.planilhaComparecimentosId)]);
   return {
     carga,
     comparecimentos: comparecimentos?.ok ? comparecimentos.comparecimentos : null,
     avisoComparecimentos:
       comparecimentos && !comparecimentos.ok
-        ? `A planilha de comparecimentos não pôde ser lida, então ticket médio e receita projetada usam o valor dos leads. ${comparecimentos.mensagem}`
+        ? `A planilha de acompanhamento não pôde ser lida, então ticket médio e receita projetada usam o valor dos leads. ${comparecimentos.mensagem}`
         : null,
   };
 }

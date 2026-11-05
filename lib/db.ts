@@ -33,6 +33,7 @@ interface ClienteRow {
   criado_em: string;
   meta_ad_account_id: string | null;
   meta_access_token: string | null;
+  planilha_comparecimentos_id?: string | null;
 }
 
 function paraCliente(row: ClienteRow): Cliente {
@@ -46,6 +47,7 @@ function paraCliente(row: ClienteRow): Cliente {
     criadoEm: row.criado_em,
     metaAdAccountId: row.meta_ad_account_id,
     metaAccessToken: row.meta_access_token,
+    planilhaComparecimentosId: row.planilha_comparecimentos_id ?? null,
   };
 }
 
@@ -76,11 +78,14 @@ export async function buscarCliente(id: string): Promise<Cliente | null> {
 }
 
 export async function criarCliente(
-  input: NovoClienteInput & { sheetId: string | null },
+  input: NovoClienteInput & { sheetId: string | null; planilhaComparecimentosId: string | null },
 ): Promise<Cliente> {
   const { data, error } = await getClient()
     .from("clientes")
     .insert({
+      // Só envia a coluna quando preenchida: funciona mesmo antes de ela
+      // existir no banco (ver supabase/schema.sql).
+      ...(input.planilhaComparecimentosId ? { planilha_comparecimentos_id: input.planilhaComparecimentosId } : {}),
       nome: input.nome.trim(),
       segmento: input.segmento.trim(),
       sheet_id: input.sheetId,
@@ -104,6 +109,8 @@ export async function atualizarCliente(
     pipefacilPipelineSeq: number | null;
     metaAdAccountId?: string;
     metaAccessToken?: string;
+    // undefined = sem alteração (a coluna pode ainda não existir no banco).
+    planilhaComparecimentosId?: string | null;
   },
 ): Promise<Cliente | null> {
   const update: Record<string, unknown> = {
@@ -118,6 +125,9 @@ export async function atualizarCliente(
   // "sem alteração", não "remover o token já salvo".
   if (dados.metaAccessToken?.trim()) {
     update.meta_access_token = dados.metaAccessToken.trim();
+  }
+  if (dados.planilhaComparecimentosId !== undefined) {
+    update.planilha_comparecimentos_id = dados.planilhaComparecimentosId;
   }
 
   const { data, error } = await getClient()

@@ -6,6 +6,7 @@ import {
   formatDayMonth,
   formatDayMonthShort,
   formatMonthYear,
+  hojeISO,
   weekdayShort,
 } from "./format";
 
@@ -158,13 +159,27 @@ export interface KpiValues {
 export interface ResumoComparecimentos {
   pacientes: number;
   valorTotal: number;
-  diasDeTrabalho: number; // dias com pelo menos um paciente
+  diasComPaciente: number;
   pacientesPorDia: number | null;
+  mesProjetado: string; // YYYY-MM
+  diasUteisNoMes: number;
 }
 
-// Ticket médio = valor pago ÷ pacientes.
-// Receita projetada = ticket médio × pacientes por dia × dias de trabalho
-// (dias com paciente na planilha, no período).
+// Dias de segunda a sexta do mês (sem descontar feriados).
+function diasUteisDoMes(mes: string): number {
+  const [ano, m] = mes.split("-").map(Number);
+  const total = new Date(Date.UTC(ano, m, 0)).getUTCDate();
+  let uteis = 0;
+  for (let d = 1; d <= total; d++) {
+    const semana = new Date(Date.UTC(ano, m - 1, d)).getUTCDay();
+    if (semana !== 0 && semana !== 6) uteis++;
+  }
+  return uteis;
+}
+
+// Ticket médio = valor pago ÷ pacientes, no período.
+// Receita projetada = ticket médio × pacientes por dia (média dos dias com
+// paciente no período) × dias úteis do mês em que o período termina.
 export function resumirComparecimentos(
   comparecimentos: Comparecimento[],
   periodo: Periodo | null,
@@ -174,16 +189,20 @@ export function resumirComparecimentos(
     : comparecimentos;
   const pacientes = doPeriodo.length;
   const valorTotal = doPeriodo.reduce((s, c) => s + c.valor, 0);
-  const diasDeTrabalho = new Set(doPeriodo.map((c) => c.data)).size;
+  const diasComPaciente = new Set(doPeriodo.map((c) => c.data)).size;
   const ticketMedio = pacientes ? valorTotal / pacientes : null;
-  const pacientesPorDia = diasDeTrabalho ? pacientes / diasDeTrabalho : null;
+  const pacientesPorDia = diasComPaciente ? pacientes / diasComPaciente : null;
+  const mesProjetado = (periodo?.fim ?? hojeISO()).slice(0, 7);
+  const diasUteisNoMes = diasUteisDoMes(mesProjetado);
   return {
     pacientes,
     valorTotal,
-    diasDeTrabalho,
+    diasComPaciente,
     pacientesPorDia,
+    mesProjetado,
+    diasUteisNoMes,
     ticketMedio,
-    receitaProjetada: (ticketMedio ?? 0) * (pacientesPorDia ?? 0) * diasDeTrabalho,
+    receitaProjetada: (ticketMedio ?? 0) * (pacientesPorDia ?? 0) * diasUteisNoMes,
   };
 }
 
@@ -223,8 +242,10 @@ export function computeKpis(
       ? {
           pacientes: resumo.pacientes,
           valorTotal: resumo.valorTotal,
-          diasDeTrabalho: resumo.diasDeTrabalho,
+          diasComPaciente: resumo.diasComPaciente,
           pacientesPorDia: resumo.pacientesPorDia,
+          mesProjetado: resumo.mesProjetado,
+          diasUteisNoMes: resumo.diasUteisNoMes,
         }
       : null,
   };

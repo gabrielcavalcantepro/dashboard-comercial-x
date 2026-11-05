@@ -1,20 +1,15 @@
-// Planilha de pacientes que compareceram, com o valor pago por cada um.
-// É a fonte do ticket médio e da receita projetada dos clientes que a têm
-// (no lugar do valor estimado dos leads).
+// Planilha de acompanhamento: pacientes que compareceram, com o valor pago
+// por cada um. É a fonte do ticket médio e da receita projetada dos
+// clientes que a têm (no lugar do valor estimado dos leads).
 
 import { buscarValoresPlanilha, normalizarCabecalho, parseDataBR, parseTicket } from "./sheets";
 import type { Comparecimento } from "./types";
 
-// Por enquanto só o Dr. Hélio usa a planilha de comparecimentos.
-const PLANILHAS: Record<string, { sheetId: string; aba: string }> = {
-  "179d1d40-0d87-4841-a53a-805e40d48ace": {
-    sheetId: "1wZNMzeaQwAO6WrqzPSw3HvOn5PjQYD-cFFbC6YgyOo8",
-    aba: "Página1",
-  },
-};
+// Sem nome de aba, o intervalo se refere à primeira aba da planilha.
+const INTERVALO = "A:Z";
 
 const COLUNAS = {
-  data: ["data"],
+  data: ["data", "data do comparecimento", "data da consulta"],
   paciente: ["nome do paciente", "paciente", "nome"],
   procedimento: ["procedimento"],
   valor: ["valor do procedimento", "valor pago", "valor"],
@@ -24,10 +19,8 @@ export type ResultadoComparecimentos =
   | { ok: true; comparecimentos: Comparecimento[] }
   | { ok: false; mensagem: string };
 
-export async function carregarComparecimentos(clienteId: string): Promise<ResultadoComparecimentos | null> {
-  const planilha = PLANILHAS[clienteId];
-  if (!planilha) return null;
-  const res = await buscarValoresPlanilha(planilha.sheetId, planilha.aba);
+export async function lerPlanilhaDeComparecimentos(sheetId: string): Promise<ResultadoComparecimentos> {
+  const res = await buscarValoresPlanilha(sheetId, INTERVALO);
   if (!res.ok) return { ok: false, mensagem: res.mensagem };
 
   const cabecalho = res.cabecalho.map((c) => normalizarCabecalho(String(c ?? "")));
@@ -41,7 +34,8 @@ export async function carregarComparecimentos(clienteId: string): Promise<Result
   if (i.data < 0 || i.valor < 0) {
     return {
       ok: false,
-      mensagem: 'A planilha de comparecimentos precisa das colunas "Data" e "Valor do procedimento".',
+      mensagem:
+        'A planilha de acompanhamento precisa das colunas "Data" e "Valor do procedimento" na primeira linha da primeira aba.',
     };
   }
 
@@ -60,4 +54,11 @@ export async function carregarComparecimentos(clienteId: string): Promise<Result
     });
   }
   return { ok: true, comparecimentos };
+}
+
+export async function carregarComparecimentos(
+  planilhaComparecimentosId: string | null,
+): Promise<ResultadoComparecimentos | null> {
+  if (!planilhaComparecimentosId) return null;
+  return lerPlanilhaDeComparecimentos(planilhaComparecimentosId);
 }
