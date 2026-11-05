@@ -9,6 +9,14 @@ interface KpiSectionProps {
 }
 
 export function KpiSection({ kpis, kpisAnterior }: KpiSectionProps) {
+  const c = kpis.comparecimentos;
+  const porDia = c?.pacientesPorDia?.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) ?? "0";
+  const tooltipReceita = c
+    ? `Ticket médio × pacientes por dia × dias de trabalho, pela planilha de comparecimentos: ${formatCurrency(kpis.ticketMedio)} × ${porDia} pacientes/dia × ${c.diasDeTrabalho} ${c.diasDeTrabalho === 1 ? "dia" : "dias"} com paciente no período.`
+    : "Soma do Ticket Médio de todos os leads com status Agendado no período filtrado.";
+  const tooltipTicket = c
+    ? `Valor pago ÷ número de pacientes, pela planilha de comparecimentos: ${formatCurrency(c.valorTotal)} ÷ ${c.pacientes} ${c.pacientes === 1 ? "paciente" : "pacientes"} no período.`
+    : "Valor médio do procedimento de interesse, considerando todos os leads com valor preenchido.";
   const rel = (atual: number, anteriorKey: keyof KpiValues) =>
     kpisAnterior ? variacaoRelativa(atual, kpisAnterior[anteriorKey] as number) : null;
   const pts = (atual: number | null, anteriorKey: keyof KpiValues) =>
@@ -38,7 +46,7 @@ export function KpiSection({ kpis, kpisAnterior }: KpiSectionProps) {
           label="Receita projetada"
           value={formatCurrency(kpis.receitaProjetada)}
           variacao={rel(kpis.receitaProjetada, "receitaProjetada")}
-          tooltip="Soma do Ticket Médio de todos os leads com status Agendado no período filtrado."
+          tooltip={tooltipReceita}
           delay={0.1}
         />
       </div>
@@ -86,7 +94,7 @@ export function KpiSection({ kpis, kpisAnterior }: KpiSectionProps) {
           label="Ticket médio"
           value={formatCurrency(kpis.ticketMedio)}
           variacao={rel(kpis.ticketMedio ?? 0, "ticketMedio")}
-          tooltip="Valor médio do procedimento de interesse, considerando todos os leads com valor preenchido."
+          tooltip={tooltipTicket}
           delay={0.27}
         />
       </div>

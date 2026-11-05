@@ -1,4 +1,4 @@
-import type { Criativo, DatasMarcos, Lead, StatusLead } from "./types";
+import type { Comparecimento, Criativo, DatasMarcos, Lead, StatusLead } from "./types";
 import { categorizarMotivo, type MotivoDesistencia } from "./reason-categorize";
 import {
   addDaysISO,
@@ -150,9 +150,48 @@ export interface KpiValues {
   taxaDesistencia: number | null;
   ticketMedio: number | null;
   receitaProjetada: number;
+  // Quando o cliente tem planilha de comparecimentos, ticket médio e
+  // receita projetada vêm dela; senão, null.
+  comparecimentos: ResumoComparecimentos | null;
 }
 
-export function computeKpis(leads: Lead[]): KpiValues {
+export interface ResumoComparecimentos {
+  pacientes: number;
+  valorTotal: number;
+  diasDeTrabalho: number; // dias com pelo menos um paciente
+  pacientesPorDia: number | null;
+}
+
+// Ticket médio = valor pago ÷ pacientes.
+// Receita projetada = ticket médio × pacientes por dia × dias de trabalho
+// (dias com paciente na planilha, no período).
+export function resumirComparecimentos(
+  comparecimentos: Comparecimento[],
+  periodo: Periodo | null,
+): ResumoComparecimentos & { ticketMedio: number | null; receitaProjetada: number } {
+  const doPeriodo = periodo
+    ? comparecimentos.filter((c) => c.data >= periodo.inicio && c.data <= periodo.fim)
+    : comparecimentos;
+  const pacientes = doPeriodo.length;
+  const valorTotal = doPeriodo.reduce((s, c) => s + c.valor, 0);
+  const diasDeTrabalho = new Set(doPeriodo.map((c) => c.data)).size;
+  const ticketMedio = pacientes ? valorTotal / pacientes : null;
+  const pacientesPorDia = diasDeTrabalho ? pacientes / diasDeTrabalho : null;
+  return {
+    pacientes,
+    valorTotal,
+    diasDeTrabalho,
+    pacientesPorDia,
+    ticketMedio,
+    receitaProjetada: (ticketMedio ?? 0) * (pacientesPorDia ?? 0) * diasDeTrabalho,
+  };
+}
+
+export function computeKpis(
+  leads: Lead[],
+  comparecimentos: Comparecimento[] | null = null,
+  periodo: Periodo | null = null,
+): KpiValues {
   const totalLeads = leads.filter(chegou).length;
   const qualificados = leads.filter((l) => l.qualificado).length;
   const agendamentos = leads.filter((l) => l.status === "Agendado").length;
@@ -167,6 +206,7 @@ export function computeKpis(leads: Lead[]): KpiValues {
   const receitaProjetada = leads
     .filter((l) => l.status === "Agendado" && l.ticketMedio !== null)
     .reduce((s, l) => s + (l.ticketMedio ?? 0), 0);
+  const resumo = comparecimentos ? resumirComparecimentos(comparecimentos, periodo) : null;
 
   return {
     totalLeads,
@@ -177,8 +217,16 @@ export function computeKpis(leads: Lead[]): KpiValues {
     taxaQualificacao: totalLeads ? (qualificados / totalLeads) * 100 : null,
     taxaAgendamento: qualificados ? (agendamentos / qualificados) * 100 : null,
     taxaDesistencia: totalLeads ? (desistiu / totalLeads) * 100 : null,
-    ticketMedio,
-    receitaProjetada,
+    ticketMedio: resumo ? resumo.ticketMedio : ticketMedio,
+    receitaProjetada: resumo ? resumo.receitaProjetada : receitaProjetada,
+    comparecimentos: resumo
+      ? {
+          pacientes: resumo.pacientes,
+          valorTotal: resumo.valorTotal,
+          diasDeTrabalho: resumo.diasDeTrabalho,
+          pacientesPorDia: resumo.pacientesPorDia,
+        }
+      : null,
   };
 }
 
@@ -535,11 +583,12 @@ export type TipoSemCriativo =
   | "mensagem_indisponivel"
   | "mensagem_pronta"
   | "sem_rastro"
+  | "outro_cliente"
   | "planilha";
 
 export interface LinhaSemCriativo extends FunilOrigem {
   tipo: TipoSemCriativo;
-  mensagem?: string; // só em "mensagem_pronta"
+  mensagem?: string; // "mensagem_pronta": a frase; "outro_cliente": o nome do cliente
 }
 
 export interface CriativosResumo {
@@ -579,6 +628,7 @@ const ORDEM_SEM_CRIATIVO: TipoSemCriativo[] = [
   "mensagem_indisponivel",
   "mensagem_pronta",
   "sem_rastro",
+  "outro_cliente",
   "planilha",
 ];
 
@@ -608,6 +658,10 @@ export function computeCriativos(
     if (!criativo) {
       const s = lead.semAnuncio ?? { tipo: "sem_rastro" as const };
       somarSemCriativo(s.tipo, lead, s.mensagem);
+      continue;
+    }
+    if (criativo.deOutroCliente) {
+      somarSemCriativo("outro_cliente", lead, criativo.deOutroCliente);
       continue;
     }
     if (criativo.variacoes) {

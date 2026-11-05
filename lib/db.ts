@@ -143,7 +143,13 @@ interface NegocioPipeFacilRow {
   historico: EnriquecimentoNegocio["historico"];
   anuncio: EnriquecimentoNegocio["anuncio"];
   anuncio_lido: boolean;
+  atualizado_em: string;
 }
+
+// Leads lidos sem anúncio antes desta data são lidos de novo: até então só
+// contava o link com ctwa_clid, e os anúncios abertos pela prévia do WhatsApp
+// (e os sem rastreio, mas com o anúncio na mensagem) ficavam de fora.
+const RELER_SEM_ANUNCIO_ATE = "2026-11-04T18:00:00Z";
 
 // As duas funções engolem erro de propósito: sem a tabela (ou com o banco
 // fora do ar) o painel continua funcionando, só relendo do CRM o que não
@@ -153,7 +159,7 @@ export async function carregarEnriquecimentos(seqs: number[]): Promise<Enriqueci
   for (let i = 0; i < seqs.length; i += 300) {
     const { data, error } = await getClient()
       .from("pipefacil_negocios")
-      .select("seq,etapa_alterada_em,historico,anuncio,anuncio_lido")
+      .select("seq,etapa_alterada_em,historico,anuncio,anuncio_lido,atualizado_em")
       .in("seq", seqs.slice(i, i + 300));
     if (error) {
       console.warn("pipefacil_negocios indisponível:", error.message);
@@ -165,7 +171,9 @@ export async function carregarEnriquecimentos(seqs: number[]): Promise<Enriqueci
         etapaAlteradaEm: row.etapa_alterada_em,
         historico: row.historico,
         anuncio: row.anuncio,
-        anuncioLido: row.anuncio_lido,
+        anuncioLido:
+          row.anuncio_lido &&
+          (row.anuncio !== null || new Date(row.atualizado_em) >= new Date(RELER_SEM_ANUNCIO_ATE)),
       });
     }
   }

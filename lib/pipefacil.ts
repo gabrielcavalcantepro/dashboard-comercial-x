@@ -13,7 +13,13 @@ import {
   urlMiniaturaArquivada,
 } from "./db";
 import { chaveDeMiniatura, chaveDeTexto } from "./criativo-chave";
-import { buscarIndiceCriativos, criativoDoAnuncio, type IndiceCriativos } from "./meta-ads";
+import {
+  buscarIndiceCriativos,
+  completarIndice,
+  criativoDoAnuncio,
+  idDoAnuncioNoLink,
+  type IndiceCriativos,
+} from "./meta-ads";
 import type { AnuncioOrigem, Criativo, Lead, RespostaSimNao } from "./types";
 
 const BASE_URL = "https://pipefacil-server.matchsales.com.br";
@@ -300,6 +306,7 @@ interface Mensagem {
 
 interface Rastreio {
   utmReferrer: string | null;
+  utmSource: string | null;
   ctwaClid: string | null;
 }
 
@@ -315,17 +322,20 @@ export async function buscarAnuncioDeOrigem(
   const detalhe = await requisitar<{ tracking: Rastreio | null }>(apiKey, `/api/v1/deals/${negocio.seq}`);
   if (!detalhe.ok) return detalhe;
   const rastreio = detalhe.dados.tracking;
-  const url = rastreio?.ctwaClid ? rastreio.utmReferrer : null;
-  if (!url) return { ok: true, dados: null };
+  // Anúncio aberto pela prévia do WhatsApp (wa.me/wamo/...) não traz
+  // ctwa_clid, só a origem "meta".
+  const doAnuncio = rastreio?.ctwaClid || rastreio?.utmSource === "meta";
+  const urlRastreada = doAnuncio ? rastreio?.utmReferrer || null : null;
 
-  const conhecido = conhecidos.get(url);
+  const conhecido = urlRastreada ? conhecidos.get(urlRastreada) : undefined;
   if (conhecido) return { ok: true, dados: conhecido };
 
-  const [daMensagem, postId] = await Promise.all([
-    buscarAnuncioNasMensagens(apiKey, negocio, url),
-    resolverPostFacebook(url),
-  ]);
+  // Sem rastreio, o anúncio ainda pode estar na mensagem que abriu a conversa.
+  const daMensagem = await buscarAnuncioNasMensagens(apiKey, negocio, urlRastreada);
   if (!daMensagem.ok) return daMensagem;
+  const url = urlRastreada ?? daMensagem.dados?.url;
+  if (!url) return { ok: true, dados: null };
+  const postId = await resolverPostFacebook(url);
   return {
     ok: true,
     dados: {
@@ -353,14 +363,26 @@ export async function resolverPostFacebook(url: string): Promise<string | null> 
 // histórico é do contato (não só deste lead): volta página a página até a
 // criação do lead, onde está a mensagem que veio do anúncio.
 const TOLERANCIA_CRIACAO_MS = 5 * 60_000;
+// Sem o link rastreado, só vale o anúncio da mensagem que criou o lead —
+// não o de uma conversa anterior do mesmo contato.
+const JANELA_MENSAGEM_DE_CRIACAO_MS = 10 * 60_000;
 const MAX_PAGINAS_MENSAGENS = 6;
 
 async function buscarAnuncioNasMensagens(
   apiKey: string,
   negocio: PipeFacilNegocio,
-  url: string,
+  url: string | null,
 ): Promise<Resultado<AnuncioOrigem | null>> {
-  const desde = new Date(negocio.createdAt).getTime() - TOLERANCIA_CRIACAO_MS;
+  const criacao = new Date(negocio.createdAt).getTime();
+  const desde = criacao - TOLERANCIA_CRIACAO_MS;
+  const ate = criacao + JANELA_MENSAGEM_DE_CRIACAO_MS;
+  const doLead = (m: Mensagem): boolean => {
+    const r = m.content?.referral;
+    if (m.direction !== "inbound" || !r?.sourceUrl) return false;
+    if (url) return r.sourceUrl === url;
+    const t = new Date(m.timestamp).getTime();
+    return t >= desde && t <= ate;
+  };
   let cursor: string | null = null;
   for (let pagina = 0; pagina < MAX_PAGINAS_MENSAGENS; pagina++) {
     const query = new URLSearchParams({ limit: "50" });
@@ -369,13 +391,12 @@ async function buscarAnuncioNasMensagens(
       await requisitar(apiKey, `/api/v1/deals/${negocio.seq}/messages?${query}`);
     if (!res.ok) return res;
     const itens = res.dados.items;
-    const r = itens.find((m) => m.direction === "inbound" && m.content?.referral?.sourceUrl === url)
-      ?.content?.referral;
-    if (r) {
+    const r = itens.find(doLead)?.content?.referral;
+    if (r?.sourceUrl) {
       return {
         ok: true,
         dados: {
-          url,
+          url: r.sourceUrl,
           titulo: r.headline ?? "",
           texto: r.body ?? "",
           miniatura: r.thumbnailUrl ?? r.imageUrl ?? null,
@@ -863,9 +884,31 @@ function indiceSemBloquear(conta: ContaMeta): Promise<IndiceCriativos | null> {
   ]);
 }
 
+// Criativo que não está na conta deste cliente mas está na de outro: o lead
+// chegou pelo anúncio do outro cliente (e o comercial o trouxe para este
+// funil). Sai da lista de criativos deste cliente.
+async function marcarCriativosDeOutrosClientes(
+  criativos: Record<string, Criativo>,
+  indice: IndiceCriativos | null,
+  outrasContas: { nome: string; conta: ContaMeta }[],
+): Promise<void> {
+  const suspeitos = Object.values(criativos).filter((c) => c.posts > 0 && !indice?.criativos.has(c.chave));
+  if (!suspeitos.length || !outrasContas.length) return;
+  const outros = await Promise.all(
+    outrasContas.map(async (o) => ({ nome: o.nome, indice: await indiceSemBloquear(o.conta) })),
+  );
+  for (const c of suspeitos) {
+    const dono = outros.find(
+      (o) => o.indice && (o.indice.criativos.has(c.chave) || criativoDoAnuncio(c, o.indice) !== null),
+    );
+    if (dono) c.deOutroCliente = dono.nome;
+  }
+}
+
 export async function buscarLeadsDoFunil(
   pipelineSeq: number,
   contaMeta?: ContaMeta,
+  outrasContas: { nome: string; conta: ContaMeta }[] = [],
 ): Promise<LeadsDoFunil> {
   const apiKey = process.env.PIPEFACIL_API_KEY ?? "";
   const [funil, negocios, campos] = await Promise.all([
@@ -882,14 +925,20 @@ export async function buscarLeadsDoFunil(
     listarMiniaturasArquivadas(),
     contaMeta ? indiceSemBloquear(contaMeta) : Promise.resolve(null),
   ]);
-  const ambiguas = miniaturasAmbiguas(
-    [...enriquecimentos.values()].flatMap((e) => (e.anuncio ? [e.anuncio] : [])),
-  );
+  const anunciosDosLeads = [...enriquecimentos.values()].flatMap((e) => (e.anuncio ? [e.anuncio] : []));
+  if (indice) {
+    await completarIndice(
+      indice,
+      anunciosDosLeads.flatMap((a) => idDoAnuncioNoLink(a.url) ?? []),
+    );
+  }
+  const ambiguas = miniaturasAmbiguas(anunciosDosLeads);
   const identificar = (a: AnuncioOrigem) => chaveDoCriativo(a, indice, ambiguas);
   const leads = converterNegocios(funil.dados, negocios.dados, campos.dados, enriquecimentos, identificar);
 
   // Os dados do anúncio vão uma vez por criativo, não repetidos em cada lead.
   const anuncios = agruparCriativos(negocios.dados, enriquecimentos, arquivadas, indice, identificar);
+  await marcarCriativosDeOutrosClientes(anuncios, indice, outrasContas);
   await arquivarMiniaturasNovas(anuncios, arquivadas);
 
   const avisos: string[] = [];

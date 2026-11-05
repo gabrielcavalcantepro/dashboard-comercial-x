@@ -203,6 +203,11 @@ const DESCRICAO_SEM_CRIATIVO: Record<TipoSemCriativo, { titulo: string; detalhe:
     detalhe: "orgânico, indicação ou contato direto",
     dica: "Nenhum registro de anúncio e uma primeira mensagem comum (\"bom dia\", nome etc.).",
   },
+  outro_cliente: {
+    titulo: "Anúncio de outro cliente",
+    detalhe: "lead que chegou por um anúncio de outro cliente e foi movido para este funil",
+    dica: "O anúncio de origem está na conta do Meta de outro cliente — o lead foi atendido neste funil, mas o criativo não é deste cliente.",
+  },
   planilha: {
     titulo: "Histórico da planilha",
     detalhe: "leads de antes do CRM, sem origem de anúncio",
@@ -341,7 +346,13 @@ export function CriativosResultadoSection({ resumo }: CriativosResultadoSectionP
                     key={`${l.tipo}:${l.mensagem ?? ""}`}
                     origem={
                       <OrigemAgregada
-                        titulo={l.mensagem ? `${d.titulo}: “${l.mensagem}”` : d.titulo}
+                        titulo={
+                          !l.mensagem
+                            ? d.titulo
+                            : l.tipo === "outro_cliente"
+                              ? `${d.titulo}: ${l.mensagem}`
+                              : `${d.titulo}: “${l.mensagem}”`
+                        }
                         detalhe={<span title={d.dica}>{d.detalhe}</span>}
                       />
                     }

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { buscarCliente } from "@/lib/db";
+import { buscarCliente, listarClientes } from "@/lib/db";
 import { buscarLeadsDoFunil } from "@/lib/pipefacil";
 import { buscarValoresPlanilha, parseLinhas, validarCabecalho } from "@/lib/sheets";
-import type { Criativo, Cliente, Lead } from "@/lib/types";
+import { carregarComparecimentos } from "@/lib/comparecimentos";
+import type { Comparecimento, Criativo, Cliente, Lead } from "@/lib/types";
 
 const TTL_MS = 15_000;
 
@@ -10,13 +11,14 @@ interface CacheEntry {
   timestamp: number;
   leads: Lead[];
   anuncios: Record<string, Criativo>;
+  comparecimentos: Comparecimento[] | null;
   statusNaoReconhecido: number;
   avisosColunas: string[];
 }
 
 declare global {
   var __leadsCache: Map<string, CacheEntry> | undefined;
-  var __leadsEmAndamento: Map<string, Promise<Carga>> | undefined;
+  var __leadsEmAndamento: Map<string, ReturnType<typeof carregarTudo>> | undefined;
 }
 
 function getCache(): Map<string, CacheEntry> {
@@ -60,12 +62,20 @@ async function carregarLeads(cliente: Cliente): Promise<Carga> {
     return carregarDaPlanilha(cliente.sheetId, cliente.abaNome);
   }
 
+  // Contas do Meta dos outros clientes: reconhecem o lead que chegou pelo
+  // anúncio de outro cliente e foi movido para este funil.
+  const outrasContas = (await listarClientes().catch(() => []))
+    .filter((c) => c.id !== cliente.id && c.metaAdAccountId && c.metaAccessToken)
+    .filter((c) => c.metaAdAccountId !== cliente.metaAdAccountId)
+    .map((c) => ({ nome: c.nome, conta: { adAccountId: c.metaAdAccountId!, token: c.metaAccessToken! } }));
+
   const [crm, planilha] = await Promise.all([
     buscarLeadsDoFunil(
       cliente.pipefacilPipelineSeq,
       cliente.metaAdAccountId && cliente.metaAccessToken
         ? { adAccountId: cliente.metaAdAccountId, token: cliente.metaAccessToken }
         : undefined,
+      outrasContas,
     ),
     cliente.sheetId ? carregarDaPlanilha(cliente.sheetId, cliente.abaNome) : null,
   ]);
@@ -107,12 +117,28 @@ async function carregarLeads(cliente: Cliente): Promise<Carga> {
 // A lista de clientes e o painel pedem o mesmo cliente ao mesmo tempo; uma
 // leitura em andamento é compartilhada para não repetir as chamadas ao CRM
 // (e o enriquecimento dos leads, que custa uma chamada por lead).
-function carregarSemRepetir(cliente: Cliente): Promise<Carga> {
+// A planilha de comparecimentos (ticket médio e receita projetada) é lida
+// junto com os leads.
+async function carregarTudo(
+  cliente: Cliente,
+): Promise<{ carga: Carga; comparecimentos: Comparecimento[] | null; avisoComparecimentos: string | null }> {
+  const [carga, comparecimentos] = await Promise.all([carregarLeads(cliente), carregarComparecimentos(cliente.id)]);
+  return {
+    carga,
+    comparecimentos: comparecimentos?.ok ? comparecimentos.comparecimentos : null,
+    avisoComparecimentos:
+      comparecimentos && !comparecimentos.ok
+        ? `A planilha de comparecimentos não pôde ser lida, então ticket médio e receita projetada usam o valor dos leads. ${comparecimentos.mensagem}`
+        : null,
+  };
+}
+
+function carregarSemRepetir(cliente: Cliente): ReturnType<typeof carregarTudo> {
   if (!global.__leadsEmAndamento) global.__leadsEmAndamento = new Map();
   const emAndamento = global.__leadsEmAndamento;
   const existente = emAndamento.get(cliente.id);
   if (existente) return existente;
-  const promessa = carregarLeads(cliente).finally(() => emAndamento.delete(cliente.id));
+  const promessa = carregarTudo(cliente).finally(() => emAndamento.delete(cliente.id));
   emAndamento.set(cliente.id, promessa);
   return promessa;
 }
@@ -133,13 +159,14 @@ export async function GET(
     return NextResponse.json({
       leads: cacheado.leads,
       anuncios: cacheado.anuncios,
+      comparecimentos: cacheado.comparecimentos,
       statusNaoReconhecido: cacheado.statusNaoReconhecido,
       avisosColunas: cacheado.avisosColunas,
       atualizadoEm: cacheado.timestamp,
     });
   }
 
-  const resultado = await carregarSemRepetir(cliente);
+  const { carga: resultado, comparecimentos, avisoComparecimentos } = await carregarSemRepetir(cliente);
   if (!resultado.ok) {
     if (cacheado) {
       return NextResponse.json({
@@ -157,14 +184,18 @@ export async function GET(
     timestamp: Date.now(),
     leads: resultado.leads,
     anuncios: resultado.anuncios,
+    comparecimentos,
     statusNaoReconhecido: resultado.statusNaoReconhecido,
-    avisosColunas: resultado.avisosColunas,
+    avisosColunas: avisoComparecimentos
+      ? [...resultado.avisosColunas, avisoComparecimentos]
+      : resultado.avisosColunas,
   };
   cache.set(id, entry);
 
   return NextResponse.json({
     leads: entry.leads,
     anuncios: entry.anuncios,
+    comparecimentos: entry.comparecimentos,
     statusNaoReconhecido: entry.statusNaoReconhecido,
     avisosColunas: entry.avisosColunas,
     atualizadoEm: entry.timestamp,

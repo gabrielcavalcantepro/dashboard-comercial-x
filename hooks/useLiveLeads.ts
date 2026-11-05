@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Criativo, Lead } from "@/lib/types";
+import type { Comparecimento, Criativo, Lead } from "@/lib/types";
 
 interface LeadsResponse {
   leads: Lead[];
   anuncios?: Record<string, Criativo>;
+  comparecimentos?: Comparecimento[] | null;
   atualizadoEm: number;
   avisosColunas: string[];
   statusNaoReconhecido: number;
@@ -16,6 +17,7 @@ interface LeadsResponse {
 export interface UseLiveLeadsResult {
   leads: Lead[];
   anuncios: Record<string, Criativo>;
+  comparecimentos: Comparecimento[] | null;
   carregandoInicial: boolean;
   erroInicial: string | null;
   avisoDiscreto: string | null;
@@ -32,6 +34,7 @@ const INTERVALO_MS = 25_000;
 export function useLiveLeads(clienteId: string): UseLiveLeadsResult {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [anuncios, setAnuncios] = useState<Record<string, Criativo>>({});
+  const [comparecimentos, setComparecimentos] = useState<Comparecimento[] | null>(null);
   const [carregandoInicial, setCarregandoInicial] = useState(true);
   const [erroInicial, setErroInicial] = useState<string | null>(null);
   const [avisoDiscreto, setAvisoDiscreto] = useState<string | null>(null);
@@ -63,6 +66,7 @@ export function useLiveLeads(clienteId: string): UseLiveLeadsResult {
 
         setLeads(data.leads);
         setAnuncios(data.anuncios ?? {});
+        if (data.comparecimentos !== undefined) setComparecimentos(data.comparecimentos);
         setAtualizadoEm(data.atualizadoEm);
         setAvisosColunas(data.avisosColunas ?? []);
         setStatusNaoReconhecido(data.statusNaoReconhecido ?? 0);
@@ -92,6 +96,7 @@ export function useLiveLeads(clienteId: string): UseLiveLeadsResult {
   return {
     leads,
     anuncios,
+    comparecimentos,
     carregandoInicial,
     erroInicial,
     avisoDiscreto,

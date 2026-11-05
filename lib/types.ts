@@ -120,6 +120,14 @@ export interface NovoClienteInput {
 
 // Criativo exibido no painel: todos os posts (Instagram, Facebook, um por
 // anúncio) que usam o mesmo vídeo ou imagem.
+// Paciente que compareceu, na planilha de comparecimentos do cliente.
+export interface Comparecimento {
+  data: string; // YYYY-MM-DD
+  paciente: string;
+  procedimento: string;
+  valor: number; // valor pago
+}
+
 export interface Criativo {
   chave: string;
   url: string; // post que mais trouxe leads
@@ -133,4 +141,7 @@ export interface Criativo {
   // Anúncio de imagem que não deu para identificar: quantas imagens da
   // conta têm o mesmo texto (o lead veio de uma delas).
   variacoes: number | null;
+  // Anúncio que está na conta do Meta de outro cliente (ex.: lead movido
+  // de funil pelo comercial): nome desse cliente.
+  deOutroCliente?: string | null;
 }

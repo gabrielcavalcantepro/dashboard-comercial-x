@@ -102,7 +102,7 @@ const CAMPOS_EM_ORDEM: CampoCanonico[] = [
   "observacoes",
 ];
 
-function normalizarCabecalho(texto: string): string {
+export function normalizarCabecalho(texto: string): string {
   return texto
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
@@ -243,7 +243,7 @@ function parseStatus(valor: string): StatusLead | null {
   return STATUS_VALIDOS[norm] ?? null;
 }
 
-function parseTicket(valor: string): number | null {
+export function parseTicket(valor: string): number | null {
   if (!valor || !valor.trim()) return null;
   let limpo = valor.replace(/r\$/gi, "").trim();
   if (!limpo) return null;
@@ -258,7 +258,7 @@ function parseTicket(valor: string): number | null {
   return Number.isFinite(numero) ? numero : null;
 }
 
-function parseDataBR(valor: string): string | null {
+export function parseDataBR(valor: string): string | null {
   if (!valor || !valor.trim()) return null;
   const parte = valor.trim().split(" ")[0];
   const m = parte.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);

@@ -56,6 +56,7 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
   const {
     leads,
     anuncios,
+    comparecimentos,
     carregandoInicial,
     erroInicial,
     avisoDiscreto,
@@ -71,14 +72,17 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
 
   const opcoes = useMemo(() => obterOpcoesFiltro(leads), [leads]);
   const leadsFiltrados = useMemo(() => filtrarLeads(leads, filtros), [leads, filtros]);
-  const kpis = useMemo(() => computeKpis(leadsFiltrados), [leadsFiltrados]);
+  const kpis = useMemo(
+    () => computeKpis(leadsFiltrados, comparecimentos, filtros.periodo),
+    [leadsFiltrados, comparecimentos, filtros.periodo],
+  );
 
   const kpisAnterior = useMemo(() => {
     if (!filtros.periodo) return null;
     const anterior = periodoAnteriorEquivalente(filtros.periodo);
     const leadsAnteriores = filtrarLeads(leads, { ...filtros, periodo: anterior });
-    return computeKpis(leadsAnteriores);
-  }, [leads, filtros]);
+    return computeKpis(leadsAnteriores, comparecimentos, anterior);
+  }, [leads, filtros, comparecimentos]);
 
   const funil = useMemo(() => computeFunil(leadsFiltrados), [leadsFiltrados]);
 
@@ -219,14 +223,14 @@ export function DashboardClient({ cliente }: DashboardClientProps) {
     const comFonteR = leadsRelatorio.filter((l) => l.fonte);
     const comProcedimentoR = leadsRelatorio.filter((l) => l.procedimento);
     return {
-      kpis: computeKpis(leadsRelatorio),
+      kpis: computeKpis(leadsRelatorio, comparecimentos, relatorio.periodo),
       funil: computeFunil(leadsRelatorio),
       porFonte: contarPor(comFonteR, (l) => l.fonte),
       porProcedimento: contarPor(comProcedimentoR, (l) => l.procedimento),
       desistenciaPorFonte: taxaDesistenciaPor(comFonteR, (l) => l.fonte),
       posQualificacao: computeDesistenciaPosQualificacao(leadsRelatorio),
     };
-  }, [leads, relatorio]);
+  }, [leads, relatorio, comparecimentos]);
 
   const confirmarRelatorio = ({
     vendedor,

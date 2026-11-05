@@ -327,14 +327,18 @@ export interface IndiceCriativos {
   criativos: Map<string, CriativoNaConta>;
   porShortcode: Map<string, string>; // post do Instagram -> chave
   porVideoId: Map<string, string>; // post de vídeo no Facebook -> chave
+  porAnuncio: Map<string, string>; // ID do anúncio -> chave
   // Post de imagem no Facebook: o fb.me aponta para um ID um pouco menor
   // que o do post do anúncio (não há como ler os posts da página com a
   // permissão de anúncios). Ordenado pelo ID.
   postsDeImagem: { id: number; chave: string }[];
   imagensPorTexto: Map<string, string[]>; // chaveDeTexto -> chaves de imagem
+  idsBuscados: Set<string>; // anúncios já procurados pelo ID (ver completarIndice)
+  token: string;
 }
 
 interface AnuncioIndiceRaw {
+  id: string;
   effective_status: string;
   creative?: {
     id?: string;
@@ -365,100 +369,162 @@ const TODOS_OS_STATUS = [
 ];
 
 const VALIDADE_INDICE_MS = 10 * 60_000;
+// Falha (ex.: limite de chamadas do Meta) é tentada de novo só depois disso.
+const ESPERA_APOS_FALHA_MS = 2 * 60_000;
 
 declare global {
-  var __indiceCriativosMeta: Map<string, { em: number; indice: Promise<IndiceCriativos> }> | undefined;
+  var __indiceCriativosMeta:
+    | Map<string, { em: number; validade: number; indice: Promise<IndiceCriativos | null> }>
+    | undefined;
 }
 
-export function buscarIndiceCriativos(adAccountId: string, token: string): Promise<IndiceCriativos> {
+// null quando a conta não pôde ser lida: sem o índice, o painel mostra os
+// criativos sem status, em vez de tratar todos como fora do ar.
+export function buscarIndiceCriativos(adAccountId: string, token: string): Promise<IndiceCriativos | null> {
   if (!global.__indiceCriativosMeta) global.__indiceCriativosMeta = new Map();
   const cache = global.__indiceCriativosMeta;
   const conta = normalizarAdAccountId(adAccountId);
   const atual = cache.get(conta);
-  if (atual && Date.now() - atual.em < VALIDADE_INDICE_MS) return atual.indice;
+  if (atual && Date.now() - atual.em < atual.validade) return atual.indice;
 
-  const indice = montarIndice(conta, token);
-  cache.set(conta, { em: Date.now(), indice });
-  return indice;
+  const entrada = { em: Date.now(), validade: VALIDADE_INDICE_MS, indice: montarIndice(conta, token) };
+  entrada.indice.then((i) => {
+    if (!i) entrada.validade = ESPERA_APOS_FALHA_MS;
+  });
+  cache.set(conta, entrada);
+  return entrada.indice;
+}
+
+// Anúncio aberto pela prévia do WhatsApp (status/preview): o link termina
+// no ID do anúncio no Meta.
+export function idDoAnuncioNoLink(url: string | null | undefined): string | null {
+  return url?.match(/wa\.me\/wamo\/status\/preview\/\d+\/(\d+)/)?.[1] ?? null;
 }
 
 export function shortcodeInstagram(url: string | null | undefined): string | null {
   return url?.match(/instagram\.com\/(?:p|reel)\/([^/?#]+)/)?.[1] ?? null;
 }
 
-async function montarIndice(conta: string, token: string): Promise<IndiceCriativos> {
-  const fields =
-    "effective_status,creative{id,body,thumbnail_url,instagram_permalink_url,image_hash,video_id," +
-    "effective_object_story_id,object_story_spec{video_data{video_id,message},link_data{message,image_hash}}}";
-  const filtering = JSON.stringify([
-    { field: "effective_status", operator: "IN", value: TODOS_OS_STATUS },
-  ]);
-  // thumbnail_width/height pedem uma miniatura maior que o padrão de 64 px.
-  let url: string | undefined =
-    `${BASE_URL}/${conta}/ads?fields=${encodeURIComponent(fields)}` +
-    `&filtering=${encodeURIComponent(filtering)}&thumbnail_width=400&thumbnail_height=400` +
-    `&limit=50&access_token=${token}`;
+const CAMPOS_ANUNCIO =
+  "id,effective_status,creative{id,body,thumbnail_url,instagram_permalink_url,image_hash,video_id," +
+  "effective_object_story_id,object_story_spec{video_data{video_id,message},link_data{message,image_hash}}}";
+// thumbnail_width/height pedem uma miniatura maior que o padrão de 64 px.
+const MINIATURA_GRANDE = "thumbnail_width=400&thumbnail_height=400";
+// A API recusa páginas maiores quando cada anúncio traz miniatura.
+const ANUNCIOS_POR_PAGINA = 50;
+const MAX_PAGINAS = 20;
+// Anúncio parado há mais tempo que isso não costuma ter lead no período que
+// o painel mostra; se tiver, é buscado pelo ID (ver completarIndice).
+const DIAS_DE_HISTORICO = 90;
 
-  const indice: IndiceCriativos = {
-    criativos: new Map(),
-    porShortcode: new Map(),
-    porVideoId: new Map(),
-    postsDeImagem: [],
-    imagensPorTexto: new Map(),
-  };
-  for (let pagina = 0; url && pagina < 30; pagina++) {
+async function lerAnuncios(conta: string, token: string, filtro: object[]): Promise<AnuncioIndiceRaw[] | null> {
+  let url: string | undefined =
+    `${BASE_URL}/${conta}/ads?fields=${encodeURIComponent(CAMPOS_ANUNCIO)}` +
+    `&filtering=${encodeURIComponent(JSON.stringify(filtro))}&${MINIATURA_GRANDE}` +
+    `&limit=${ANUNCIOS_POR_PAGINA}&access_token=${token}`;
+  const anuncios: AnuncioIndiceRaw[] = [];
+  for (let pagina = 0; url && pagina < MAX_PAGINAS; pagina++) {
     const res: { ok: true; data: { data: AnuncioIndiceRaw[]; paging?: { next?: string } } } | MetaAdsError =
       await chamarGraphApi(url);
     if (!res.ok) {
       console.warn("Não foi possível ler os criativos da conta do Meta:", res.mensagem);
-      break;
+      return null;
     }
-    for (const ad of res.data.data) {
-      const c = ad.creative ?? {};
-      const videoId = c.video_id ?? c.object_story_spec?.video_data?.video_id;
-      const imagem = c.image_hash ?? c.object_story_spec?.link_data?.image_hash;
-      const chave = videoId
-        ? (chaveDeMiniatura(c.thumbnail_url) ?? `vid_${videoId}`)
-        : imagem
-          ? `img_${imagem}`
-          : c.id
-            ? `cr_${c.id}`
-            : null;
-      if (!chave) continue;
-
-      const ativo = ad.effective_status === "ACTIVE";
-      const texto =
-        c.body ?? c.object_story_spec?.video_data?.message ?? c.object_story_spec?.link_data?.message ?? "";
-      const item = indice.criativos.get(chave) ?? {
-        ativo: false,
-        miniatura: null,
-        texto,
-        url: null,
-        tipoMidia: videoId ? ("video" as const) : ("image" as const),
-      };
-      // Prefere os dados de um anúncio que está no ar.
-      if (c.thumbnail_url && (!item.miniatura || (ativo && !item.ativo))) item.miniatura = c.thumbnail_url;
-      if (c.instagram_permalink_url && (!item.url || ativo)) item.url = c.instagram_permalink_url;
-      if (!item.texto) item.texto = texto;
-      item.ativo ||= ativo;
-      indice.criativos.set(chave, item);
-
-      const shortcode = shortcodeInstagram(c.instagram_permalink_url);
-      if (shortcode) indice.porShortcode.set(shortcode, chave);
-      if (videoId) indice.porVideoId.set(videoId, chave);
-      const postId = c.effective_object_story_id?.split("_")[1];
-      if (!videoId && postId) indice.postsDeImagem.push({ id: Number(postId), chave });
-      const chaveTexto = chaveDeTexto(texto);
-      if (!videoId && chaveTexto) {
-        const lista = indice.imagensPorTexto.get(chaveTexto) ?? [];
-        if (!lista.includes(chave)) lista.push(chave);
-        indice.imagensPorTexto.set(chaveTexto, lista);
-      }
-    }
+    anuncios.push(...res.data.data);
     url = res.data.paging?.next;
   }
+  return anuncios;
+}
+
+// Ler todos os anúncios da conta (milhares, nas contas mais antigas) levava
+// mais de um minuto e esbarrava no limite de chamadas do Meta. Basta o que
+// está no ar e o que mudou nos últimos meses; anúncio antigo que ainda
+// aparece num lead é buscado pelo ID.
+async function montarIndice(conta: string, token: string): Promise<IndiceCriativos | null> {
+  const indice: IndiceCriativos = {
+    criativos: new Map(),
+    porShortcode: new Map(),
+    porVideoId: new Map(),
+    porAnuncio: new Map(),
+    postsDeImagem: [],
+    imagensPorTexto: new Map(),
+    idsBuscados: new Set(),
+    token,
+  };
+  const desde = Math.floor(Date.now() / 1000) - DIAS_DE_HISTORICO * 86_400;
+  const [noAr, recentes] = await Promise.all([
+    lerAnuncios(conta, token, [{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
+    lerAnuncios(conta, token, [
+      { field: "effective_status", operator: "IN", value: TODOS_OS_STATUS },
+      { field: "updated_time", operator: "GREATER_THAN", value: desde },
+    ]),
+  ]);
+  if (!noAr || !recentes) return null;
+  for (const ad of [...noAr, ...recentes]) incluirAnuncio(indice, ad);
   indice.postsDeImagem.sort((a, b) => a.id - b.id);
   return indice;
+}
+
+// Anúncios dos leads (pelo ID no link da prévia do WhatsApp) que não estão
+// no índice: lidos um a um, em lotes, uma vez só.
+export async function completarIndice(indice: IndiceCriativos, ids: string[]): Promise<void> {
+  const faltando = [...new Set(ids)].filter((id) => !indice.porAnuncio.has(id) && !indice.idsBuscados.has(id));
+  for (let i = 0; i < faltando.length; i += 50) {
+    const lote = faltando.slice(i, i + 50);
+    lote.forEach((id) => indice.idsBuscados.add(id));
+    const res: { ok: true; data: Record<string, AnuncioIndiceRaw> } | MetaAdsError = await chamarGraphApi(
+      `${BASE_URL}/?ids=${lote.join(",")}&fields=${encodeURIComponent(CAMPOS_ANUNCIO)}` +
+        `&${MINIATURA_GRANDE}&access_token=${indice.token}`,
+    );
+    if (!res.ok) continue;
+    for (const ad of Object.values(res.data)) incluirAnuncio(indice, ad);
+  }
+  indice.postsDeImagem.sort((a, b) => a.id - b.id);
+}
+
+function incluirAnuncio(indice: IndiceCriativos, ad: AnuncioIndiceRaw): void {
+  if (indice.porAnuncio.has(ad.id)) return;
+  const c = ad.creative ?? {};
+  const videoId = c.video_id ?? c.object_story_spec?.video_data?.video_id;
+  const imagem = c.image_hash ?? c.object_story_spec?.link_data?.image_hash;
+  const chave = videoId
+    ? (chaveDeMiniatura(c.thumbnail_url) ?? `vid_${videoId}`)
+    : imagem
+      ? `img_${imagem}`
+      : c.id
+        ? `cr_${c.id}`
+        : null;
+  if (!chave) return;
+
+  const ativo = ad.effective_status === "ACTIVE";
+  const texto =
+    c.body ?? c.object_story_spec?.video_data?.message ?? c.object_story_spec?.link_data?.message ?? "";
+  const item = indice.criativos.get(chave) ?? {
+    ativo: false,
+    miniatura: null,
+    texto,
+    url: null,
+    tipoMidia: videoId ? ("video" as const) : ("image" as const),
+  };
+  // Prefere os dados de um anúncio que está no ar.
+  if (c.thumbnail_url && (!item.miniatura || (ativo && !item.ativo))) item.miniatura = c.thumbnail_url;
+  if (c.instagram_permalink_url && (!item.url || ativo)) item.url = c.instagram_permalink_url;
+  if (!item.texto) item.texto = texto;
+  item.ativo ||= ativo;
+  indice.criativos.set(chave, item);
+  indice.porAnuncio.set(ad.id, chave);
+
+  const shortcode = shortcodeInstagram(c.instagram_permalink_url);
+  if (shortcode) indice.porShortcode.set(shortcode, chave);
+  if (videoId) indice.porVideoId.set(videoId, chave);
+  const postId = c.effective_object_story_id?.split("_")[1];
+  if (!videoId && postId) indice.postsDeImagem.push({ id: Number(postId), chave });
+  const chaveTexto = chaveDeTexto(texto);
+  if (!videoId && chaveTexto) {
+    const lista = indice.imagensPorTexto.get(chaveTexto) ?? [];
+    if (!lista.includes(chave)) lista.push(chave);
+    indice.imagensPorTexto.set(chaveTexto, lista);
+  }
 }
 
 // Maior distância observada entre o ID do fb.me e o do post do anúncio de
@@ -472,6 +538,8 @@ export function criativoDoAnuncio(
   anuncio: { url: string; texto: string; postId?: string | null },
   indice: IndiceCriativos,
 ): string | null {
+  const doAnuncio = indice.porAnuncio.get(idDoAnuncioNoLink(anuncio.url) ?? "");
+  if (doAnuncio) return doAnuncio;
   const shortcode = shortcodeInstagram(anuncio.url);
   if (shortcode && indice.porShortcode.has(shortcode)) return indice.porShortcode.get(shortcode)!;
   if (anuncio.postId) {
