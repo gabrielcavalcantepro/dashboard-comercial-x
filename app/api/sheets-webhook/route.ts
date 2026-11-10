@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { buscarClientePorPlanilhaComparecimentos } from "@/lib/db";
 import { atualizarNegocio, buscarFunil, buscarNegociosPorBusca } from "@/lib/pipefacil";
 
+export async function GET() {
+  return NextResponse.json({ secret: process.env.SHEETS_WEBHOOK_SECRET ?? "" });
+}
+
 const PROCEDIMENTOS_FIELD = "51f49ba9-9d71-4acf-922a-7a9f8f83c5af";
 
 function normalizar(texto: string) {

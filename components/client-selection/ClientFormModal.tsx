@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import type { ClientePublico } from "@/lib/types";
 
-function gerarAppsScript(webhookUrl: string): string {
+function gerarAppsScript(webhookUrl: string, secret: string): string {
+  const secretValue = secret || "COLE_AQUI_O_SHEETS_WEBHOOK_SECRET";
   return `// ================================================================
 // Google Apps Script — Sheets → PipeFácil
 // Cole em: Extensões > Apps Script > Code.gs
@@ -26,7 +27,7 @@ function gerarAppsScript(webhookUrl: string): string {
 // ================================================================
 
 var WEBHOOK_URL    = '${webhookUrl}';
-var WEBHOOK_SECRET = 'COLE_AQUI_O_SHEETS_WEBHOOK_SECRET'; // valor do .env.local
+var WEBHOOK_SECRET = '${secretValue}';
 var STATUS_COL     = 6; // coluna F
 
 function setupTrigger() {
@@ -212,20 +213,24 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
   const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
   const [copiado, setCopiado] = useState(false);
   const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setWebhookUrl(window.location.origin + "/api/sheets-webhook");
-    }
+    if (typeof window === "undefined") return;
+    setWebhookUrl(window.location.origin + "/api/sheets-webhook");
+    fetch("/api/sheets-webhook")
+      .then((r) => r.json())
+      .then((d) => setWebhookSecret(d.secret ?? ""))
+      .catch(() => {});
   }, []);
 
   const copiarScript = useCallback(() => {
     if (!webhookUrl) return;
-    navigator.clipboard.writeText(gerarAppsScript(webhookUrl)).then(() => {
+    navigator.clipboard.writeText(gerarAppsScript(webhookUrl, webhookSecret)).then(() => {
       setCopiado(true);
       setTimeout(() => setCopiado(false), 2000);
     });
-  }, [webhookUrl]);
+  }, [webhookUrl, webhookSecret]);
 
   // Reidrata o formulário sempre que o modal abre — ajustado durante a
   // renderização (não em efeito) seguindo o padrão recomendado pelo React
@@ -447,10 +452,10 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
               </button>
             </div>
             <pre className="max-h-36 overflow-y-auto rounded bg-[var(--color-surface)] p-2.5 text-[10.5px] leading-relaxed text-[var(--color-text-faint)] scrollbar-thin">
-              <code>{gerarAppsScript(webhookUrl)}</code>
+              <code>{gerarAppsScript(webhookUrl, webhookSecret)}</code>
             </pre>
             <p className="mt-2 text-[11px] leading-relaxed text-[var(--color-text-faint)]">
-              Cole em <strong>Extensões › Apps Script › Code.gs</strong> e execute <code className="rounded bg-[var(--color-surface)] px-1">setupTrigger()</code> uma vez. Troque <code className="rounded bg-[var(--color-surface)] px-1">COLE_AQUI_O_SHEETS_WEBHOOK_SECRET</code> pelo valor de <code className="rounded bg-[var(--color-surface)] px-1">SHEETS_WEBHOOK_SECRET</code> do <code className="rounded bg-[var(--color-surface)] px-1">.env.local</code>.
+              Cole em <strong>Extensões › Apps Script › Code.gs</strong>, salve e execute <code className="rounded bg-[var(--color-surface)] px-1">setupTrigger()</code> uma vez pelo menu Executar.
             </p>
           </div>
         )}
