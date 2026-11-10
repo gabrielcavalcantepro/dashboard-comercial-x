@@ -93,7 +93,12 @@ function onSheetEdit(e) {
     statusCell.setBackground('#ffeb9c');
     statusCell.setFontColor('#9c5700');
   } else {
-    statusCell.setValue('Erro ' + code);
+    try {
+      var errMsg = JSON.parse(res.getContentText()).erro || '';
+      statusCell.setValue('Erro ' + code + (errMsg ? ': ' + errMsg : ''));
+    } catch(_) {
+      statusCell.setValue('Erro ' + code);
+    }
     statusCell.setBackground('#ffc7ce');
     statusCell.setFontColor('#9c0006');
   }
