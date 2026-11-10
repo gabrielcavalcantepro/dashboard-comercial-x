@@ -414,7 +414,7 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
           disabled={enviando}
         />
 
-        {editando && cliente?.planilhaComparecimentosId && webhookUrl && (
+        {editando && (linkComparecimentos || cliente?.planilhaComparecimentosId) && webhookUrl && (
           <div className="rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-raised)] px-3.5 py-3">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[12px] font-medium text-[var(--color-text)]">Script para a planilha</span>
