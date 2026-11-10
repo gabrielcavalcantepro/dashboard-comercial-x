@@ -13,6 +13,7 @@ function normalizar(texto: string) {
 }
 
 const NOMES_COMPARECEU = ["compareceu", "comparecidos", "comparecido"];
+const NOMES_CONVERTIDO = ["convertidos", "convertido"];
 const NOMES_AGENDADO = ["agendados", "agendado"];
 
 function parseValor(texto: string): number {
@@ -36,8 +37,8 @@ export async function POST(req: Request) {
   }
 
   const { sheetId, phone, procedimento, valor } = body;
-  if (!sheetId || !phone || !procedimento) {
-    return NextResponse.json({ erro: "sheetId, phone e procedimento são obrigatórios." }, { status: 400 });
+  if (!sheetId || !phone) {
+    return NextResponse.json({ erro: "sheetId e phone são obrigatórios." }, { status: 400 });
   }
 
   const cliente = await buscarClientePorPlanilhaComparecimentos(sheetId);
@@ -57,6 +58,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ erro: `PipeFácil: ${funilRes.mensagem}` }, { status: 502 });
   }
 
+  const temProcedimento = !!(procedimento?.trim());
+  const temValor = !!(valor?.trim());
+  const moverParaConvertido = temProcedimento && temValor;
+
   const etapaCompareceu = funilRes.dados.stages.find((s) => NOMES_COMPARECEU.includes(normalizar(s.name)));
   if (!etapaCompareceu) {
     return NextResponse.json(
@@ -64,6 +69,9 @@ export async function POST(req: Request) {
       { status: 422 },
     );
   }
+
+  const etapaConvertido = funilRes.dados.stages.find((s) => NOMES_CONVERTIDO.includes(normalizar(s.name)));
+  const etapaAlvo = moverParaConvertido && etapaConvertido ? etapaConvertido : etapaCompareceu;
 
   const digits = phone.replace(/\D/g, "");
   const searchTerm = digits.slice(-8);
@@ -88,14 +96,16 @@ export async function POST(req: Request) {
 
   const valorNumerico = parseValor(valor ?? "0");
   const procedimentosText =
-    valorNumerico > 0
-      ? `${procedimento} — R$ ${valorNumerico.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
-      : procedimento;
+    temProcedimento && valorNumerico > 0
+      ? `${procedimento!.trim()} — R$ ${valorNumerico.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+      : temProcedimento
+        ? procedimento!.trim()
+        : undefined;
 
   const atualizacaoRes = await atualizarNegocio(apiKey, negocio.seq, {
-    stageId: etapaCompareceu.id,
-    value: valorNumerico,
-    customFields: { [PROCEDIMENTOS_FIELD]: procedimentosText },
+    stageId: etapaAlvo.id,
+    ...(valorNumerico > 0 ? { value: valorNumerico } : {}),
+    ...(procedimentosText ? { customFields: { [PROCEDIMENTOS_FIELD]: procedimentosText } } : {}),
   });
 
   if (!atualizacaoRes.ok) {
@@ -106,8 +116,8 @@ export async function POST(req: Request) {
     status: "ok",
     negocioSeq: negocio.seq,
     negocioNome: negocio.name,
-    etapa: etapaCompareceu.name,
-    procedimento: procedimentosText,
+    etapa: etapaAlvo.name,
+    procedimento: procedimentosText ?? null,
     valor: valorNumerico,
     pipeline: funilRes.dados.name,
     cliente: cliente.nome,

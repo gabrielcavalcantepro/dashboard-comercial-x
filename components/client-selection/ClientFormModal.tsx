@@ -11,8 +11,13 @@ import type { ClientePublico } from "@/lib/types";
 
 function gerarAppsScript(webhookUrl: string): string {
   return `// ================================================================
-// Google Apps Script — Sheets → PipeFácil "Compareceu"
+// Google Apps Script — Sheets → PipeFácil
 // Cole em: Extensões > Apps Script > Code.gs
+//
+// Lógica:
+//   Nome + Telefone preenchidos        → move para "Compareceu"
+//   Nome + Telefone + Proc + Valor     → move para "Convertidos"
+//   Linha já marcada "Convertido ✓"    → ignorada (etapa final)
 //
 // Configuração ÚNICA (fazer uma vez):
 //   1. Cole este código
@@ -42,16 +47,28 @@ function onSheetEdit(e) {
   if (row < 2) return;
 
   var dados = sheet.getRange(row, 1, 1, 5).getValues()[0];
-  if (!dados[0] || !dados[1] || !dados[2] || !dados[3] || !dados[4]) return;
+  var nome     = String(dados[1] || '').trim();
+  var telefone = String(dados[2] || '').trim();
+  var proc     = String(dados[3] || '').trim();
+  var valor    = String(dados[4] || '').trim();
+
+  // Precisa ter pelo menos nome e telefone
+  if (!nome || !telefone) return;
 
   var statusCell = sheet.getRange(row, STATUS_COL);
-  if (statusCell.getValue() === 'Enviado ✓') return;
+  var status = statusCell.getValue();
+
+  // Já convertido → etapa final, não mexe mais
+  if (status === 'Convertido ✓') return;
+
+  // Já compareceu mas sem proc/valor → aguarda preenchimento, não re-envia
+  if (status === 'Compareceu ✓' && (!proc || !valor)) return;
 
   var payload = JSON.stringify({
     sheetId:      SpreadsheetApp.getActive().getId(),
-    phone:        String(dados[2]).trim(),
-    procedimento: String(dados[3]).trim(),
-    valor:        String(dados[4]).trim(),
+    phone:        telefone,
+    procedimento: proc,
+    valor:        valor,
   });
 
   var res = UrlFetchApp.fetch(WEBHOOK_URL, {
@@ -64,9 +81,12 @@ function onSheetEdit(e) {
 
   var code = res.getResponseCode();
   if (code === 200) {
-    statusCell.setValue('Enviado ✓');
-    statusCell.setBackground('#c6efce');
-    statusCell.setFontColor('#276221');
+    var dados_res = JSON.parse(res.getContentText());
+    var etapa = (dados_res.etapa || '').toLowerCase();
+    var convertido = etapa.indexOf('conver') !== -1;
+    statusCell.setValue(convertido ? 'Convertido ✓' : 'Compareceu ✓');
+    statusCell.setBackground(convertido ? '#d4edda' : '#c6efce');
+    statusCell.setFontColor(convertido ? '#155724' : '#276221');
   } else if (code === 404) {
     statusCell.setValue('Lead não encontrado');
     statusCell.setBackground('#ffeb9c');
