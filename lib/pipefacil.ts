@@ -263,10 +263,17 @@ export async function atualizarNegocio(
     return { ok: false, motivo: "nao_encontrado", mensagem: "Negócio não encontrado no PipeFácil." };
   }
   if (!res.ok) {
+    let detalhe = "";
+    try {
+      const errBody = await res.json();
+      detalhe = errBody.message ?? errBody.error ?? JSON.stringify(errBody);
+    } catch {
+      detalhe = await res.text().catch(() => "");
+    }
     return {
       ok: false,
       motivo: "erro_desconhecido",
-      mensagem: `Erro ${res.status} ao atualizar negócio no PipeFácil.`,
+      mensagem: `Erro ${res.status} ao atualizar negócio no PipeFácil.${detalhe ? " " + detalhe : ""}`,
     };
   }
   const corpo = (await res.json()) as { data: PipeFacilNegocio };
