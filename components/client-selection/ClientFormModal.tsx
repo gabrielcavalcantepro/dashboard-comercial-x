@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
 import { Select, type SelectOption } from "@/components/ui/Select";
@@ -8,6 +8,76 @@ import { TextField } from "@/components/ui/TextField";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import type { ClientePublico } from "@/lib/types";
+
+function gerarAppsScript(webhookUrl: string): string {
+  return `// ================================================================
+// Google Apps Script — Sheets → PipeFácil "Compareceu"
+// Cole em: Extensões > Apps Script > Code.gs
+//
+// Configuração ÚNICA (fazer uma vez):
+//   1. Cole este código
+//   2. Execute setupTrigger() (menu Executar → Executar função)
+//   3. Autorize as permissões quando solicitado
+// ================================================================
+
+var WEBHOOK_URL    = '${webhookUrl}';
+var WEBHOOK_SECRET = 'COLE_AQUI_O_SHEETS_WEBHOOK_SECRET'; // valor do .env.local
+var STATUS_COL     = 6; // coluna F
+
+function setupTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'onSheetEdit') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('onSheetEdit')
+    .forSpreadsheet(SpreadsheetApp.getActive())
+    .onEdit()
+    .create();
+  SpreadsheetApp.getUi().alert('Trigger instalado!');
+}
+
+function onSheetEdit(e) {
+  var sheet = e.source.getActiveSheet();
+  if (sheet.getName() !== 'Página1') return;
+  var row = e.range.getRow();
+  if (row < 2) return;
+
+  var dados = sheet.getRange(row, 1, 1, 5).getValues()[0];
+  if (!dados[0] || !dados[1] || !dados[2] || !dados[3] || !dados[4]) return;
+
+  var statusCell = sheet.getRange(row, STATUS_COL);
+  if (statusCell.getValue() === 'Enviado ✓') return;
+
+  var payload = JSON.stringify({
+    sheetId:      SpreadsheetApp.getActive().getId(),
+    phone:        String(dados[2]).trim(),
+    procedimento: String(dados[3]).trim(),
+    valor:        String(dados[4]).trim(),
+  });
+
+  var res = UrlFetchApp.fetch(WEBHOOK_URL, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + WEBHOOK_SECRET },
+    payload: payload,
+    muteHttpExceptions: true,
+  });
+
+  var code = res.getResponseCode();
+  if (code === 200) {
+    statusCell.setValue('Enviado ✓');
+    statusCell.setBackground('#c6efce');
+    statusCell.setFontColor('#276221');
+  } else if (code === 404) {
+    statusCell.setValue('Lead não encontrado');
+    statusCell.setBackground('#ffeb9c');
+    statusCell.setFontColor('#9c5700');
+  } else {
+    statusCell.setValue('Erro ' + code);
+    statusCell.setBackground('#ffc7ce');
+    statusCell.setFontColor('#9c0006');
+  }
+}`;
+}
 
 interface ClientFormModalProps {
   open: boolean;
@@ -120,6 +190,22 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
   const [erro, setErro] = useState<string | null>(null);
   // Excluir pede uma segunda confirmação no próprio modal.
   const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setWebhookUrl(window.location.origin + "/api/sheets-webhook");
+    }
+  }, []);
+
+  const copiarScript = useCallback(() => {
+    if (!webhookUrl) return;
+    navigator.clipboard.writeText(gerarAppsScript(webhookUrl)).then(() => {
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2000);
+    });
+  }, [webhookUrl]);
 
   // Reidrata o formulário sempre que o modal abre — ajustado durante a
   // renderização (não em efeito) seguindo o padrão recomendado pelo React
@@ -327,6 +413,27 @@ export function ClientFormModal({ open, onClose, cliente }: ClientFormModalProps
           hint='Pacientes que compareceram, com as colunas Data, Nome do paciente, Procedimento e Valor do procedimento. Com ela, o ticket médio e a receita projetada usam o valor pago. Compartilhe como "Qualquer pessoa com o link → Leitor".'
           disabled={enviando}
         />
+
+        {editando && cliente?.planilhaComparecimentosId && webhookUrl && (
+          <div className="rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-raised)] px-3.5 py-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[12px] font-medium text-[var(--color-text)]">Script para a planilha</span>
+              <button
+                type="button"
+                onClick={copiarScript}
+                className="rounded px-2 py-0.5 text-[11px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)] transition-colors"
+              >
+                {copiado ? "Copiado ✓" : "Copiar"}
+              </button>
+            </div>
+            <pre className="max-h-36 overflow-y-auto rounded bg-[var(--color-surface)] p-2.5 text-[10.5px] leading-relaxed text-[var(--color-text-faint)] scrollbar-thin">
+              <code>{gerarAppsScript(webhookUrl)}</code>
+            </pre>
+            <p className="mt-2 text-[11px] leading-relaxed text-[var(--color-text-faint)]">
+              Cole em <strong>Extensões › Apps Script › Code.gs</strong> e execute <code className="rounded bg-[var(--color-surface)] px-1">setupTrigger()</code> uma vez. Troque <code className="rounded bg-[var(--color-surface)] px-1">COLE_AQUI_O_SHEETS_WEBHOOK_SECRET</code> pelo valor de <code className="rounded bg-[var(--color-surface)] px-1">SHEETS_WEBHOOK_SECRET</code> do <code className="rounded bg-[var(--color-surface)] px-1">.env.local</code>.
+            </p>
+          </div>
+        )}
 
         <div className="flex items-center gap-2.5 pt-1">
           <span className="h-[6px] w-[6px] shrink-0 rounded-full bg-[var(--color-accent)]" />

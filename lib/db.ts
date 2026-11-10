@@ -140,6 +140,16 @@ export async function atualizarCliente(
   return data ? paraCliente(data) : null;
 }
 
+export async function buscarClientePorPlanilhaComparecimentos(sheetId: string): Promise<Cliente | null> {
+  const { data, error } = await getClient()
+    .from("clientes")
+    .select("*")
+    .eq("planilha_comparecimentos_id", sheetId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? paraCliente(data) : null;
+}
+
 export async function removerCliente(id: string): Promise<void> {
   const { error } = await getClient().from("clientes").delete().eq("id", id);
   if (error) throw error;

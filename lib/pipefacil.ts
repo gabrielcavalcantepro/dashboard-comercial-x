@@ -199,6 +199,80 @@ export function listarCamposDeNegocio(apiKey: string): Promise<Resultado<PipeFac
   return requisitar<PipeFacilCampo[]>(apiKey, "/api/v1/custom-fields?entity=deal");
 }
 
+export async function buscarNegociosPorBusca(
+  apiKey: string,
+  pipelineSeq: number,
+  busca: string,
+): Promise<Resultado<PipeFacilNegocio[]>> {
+  const query = new URLSearchParams({
+    pipeline: String(pipelineSeq),
+    search: busca,
+    limit: "50",
+  });
+  const res = await requisitar<{ items: PipeFacilNegocio[]; nextCursor: string | null; hasMore: boolean }>(
+    apiKey,
+    `/api/v1/deals?${query}`,
+  );
+  if (!res.ok) return res;
+  return { ok: true, dados: res.dados.items };
+}
+
+export interface AtualizacaoNegocio {
+  stageId?: string;
+  value?: number;
+  customFields?: Record<string, string | number | null>;
+}
+
+export async function atualizarNegocio(
+  apiKey: string,
+  seq: number,
+  dados: AtualizacaoNegocio,
+): Promise<Resultado<PipeFacilNegocio>> {
+  if (!apiKey) {
+    return {
+      ok: false,
+      motivo: "sem_chave",
+      mensagem: "O servidor ainda não está configurado com uma chave de API do PipeFácil (PIPEFACIL_API_KEY).",
+    };
+  }
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}/api/v1/deals/${seq}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(dados),
+      cache: "no-store",
+    });
+  } catch {
+    return {
+      ok: false,
+      motivo: "erro_desconhecido",
+      mensagem: "Não foi possível conectar ao PipeFácil agora. Tente novamente em instantes.",
+    };
+  }
+  if (res.status === 401) {
+    return { ok: false, motivo: "chave_invalida", mensagem: "A chave de API do PipeFácil é inválida." };
+  }
+  if (res.status === 403) {
+    return { ok: false, motivo: "sem_permissao", mensagem: "A chave não tem permissão para editar negócios." };
+  }
+  if (res.status === 404) {
+    return { ok: false, motivo: "nao_encontrado", mensagem: "Negócio não encontrado no PipeFácil." };
+  }
+  if (!res.ok) {
+    return {
+      ok: false,
+      motivo: "erro_desconhecido",
+      mensagem: `Erro ${res.status} ao atualizar negócio no PipeFácil.`,
+    };
+  }
+  const corpo = (await res.json()) as { data: PipeFacilNegocio };
+  return { ok: true, dados: corpo.data };
+}
+
 // ---------- Conversão negócio -> Lead do dashboard ----------
 
 function normalizarNome(texto: string): string {
